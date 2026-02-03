@@ -15,10 +15,10 @@ Types of rooms:
 - Boss Room - Final encounter of the run
 
 Room Sizes:
-- Small 8x8 tiles (ambush - tight combat, high pressure)
-- Medium 12x12 tiles (standard combats, safe/rest)
-- Large 16x16 tiles (start room, elite or boos encounters)
-* If we wish to keep things more consistent all rooms could be medium. 
+- Base Size: Large 16x16 tiles (start room, elite or boos encounters)
+- For later iterations we might experiment with other sizes:
+      - Small 8x8 tiles (ambush - tight combat, high pressure)
+      - Medium 12x12 tiles (standard combats, safe/rest)
 
 Types of Blocks in Rooms:
 - Normal Floor - Standard movement 
@@ -32,6 +32,7 @@ Types of Enemies:
 - Fast Enemy - Flanks and pressures the player
 - Heavy Enemy - Slow, high health, area attacks
 - Elite Variant - Modified versions with high stats or abilities
+- Boss Enemy - Stronger than elite. Might call enemies or display multi-phase mechanics (e.g. reviving or entering second phase after being defeated once)
 
 Enemy Strength: 
 - Strenghth scales with dungeon depths
