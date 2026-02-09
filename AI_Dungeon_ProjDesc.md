@@ -1,5 +1,7 @@
 ## Adaptive Dungeon Design with an AI Director
 
+**Group Members:** Natalie Cristina Leal Blanco, Maham Asif
+
 ### Core Fantasy
 
 The player explore procedurally generated dungeons where the dungeon acts as the opponent. Rather than relying on intelligent individual enemies, the dungeon adapts encounter pacing, pressure, and difficult throughout each run in order to challenge the player.

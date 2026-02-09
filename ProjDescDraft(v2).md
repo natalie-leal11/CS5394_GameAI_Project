@@ -1,6 +1,7 @@
-Core Fantasy: The player explore procedurally generated dungeons where the dungeon acts as the opponent. Rather than relying on intelligent individual enemies, the dungeon adapts encounter pacing, pressure, and difficult throughout each run in order to challenge the player.
+Core Fantasy: The player explore procedurally generated dungeons where the dungeon acts as the opponent. Rather than relying on intelligent individual enemies, the dungeon adapts 
+encounter pacing, pressure, and difficult throughout each run in order to challenge the player.
 
-Gameplay Flow Overview:
+Gameplay Flow Overview
 
 Start Game
    ↓
@@ -101,8 +102,7 @@ Once combat starts, enemies remain in the same room until defeated.
 - Melee Enemy: Close-range pressure: high health, low damage
 - Fast Enemy: Mobile flanker
 - Heavy Enemy: Slow, high health, area attacks
-- Elite Variant: Enhanced versions with higher stats or abilities
-- Final Boss Variant: appears at the end, has multiple attack abilities and needs to be deafeated twice.
+- Elite Variante: Enhanced versions with higher stats or abilities
 
 4.2 Enemy Scaling 
 Enemy strength scales with dungeon depth:
