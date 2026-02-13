@@ -3,8 +3,11 @@
 ### MANDATORY DIRECTIVE ###
 You are an expert Python programmer using **Pygame**.
 
+**CRITICAL**: Implement player movement and dash only. Do not implement combat or enemies in this step.
+
+
 ## **MANDATORY**: OBJECTIVE
-Implement a controllable player with movement and dash.
+Create a controllable player entity with deterministic movement and dash mechanics.
 
 
 ## **MANDATORY**: FILES TO CREATE OR MODIFY
@@ -14,22 +17,57 @@ Implement a controllable player with movement and dash.
 - `src/game/systems/movement.py`
 - `src/game/scenes/run_scene.py`
 
+No other files may be modified.
+
 
 ## **CRITICAL**: IMPLEMENTATION REQUIREMENTS
 
+### Movement
 - WASD movement
-- SPACE dash with cooldown
-- Base HP = 100
-- Clamp player to window bounds
+- Base Move Speed: **220 px/sec**
+- Use delta-time scaling
+- Clamp player within room bounds
+
+### Base Stats
+- Base HP: **100**
+- Collision radius: **16 px**
+
+### Dash 
+- Dash Speed Multipleier: **2.2 move speed**
+- Dash Duration: **0.18 sec**
+- Dash Cooldown: **1.0 sec**
+- Dash must use dterministic timers
+- Dash cannot stack
+- Dash cannot exit boundaries
+
+### **MANDATORY**: Parameter Source
+All numerical values must match SEction 9 of the Parameters Spec.
+Do NOT invent alternate values/
+
+
+## **MANDATORY**: ARCHITECTURE CONSTRAINTS
+
+- No combat logic in this step
+- No damage logic
+- No randomness
+- No AI Director integration
 
 
 ## **MANDATORY**: VERIFICATION
 
-- [ ] Player moves with WASD
-- [ ] Dash works and has cooldown
-- [ ] HP initialized to 100
+1. Run 'python -m src.game.main'
+2. Verify: 
+    - [ ] Player moves with WASD
+    - [ ] Player moves with consistent speed
+    - [ ] Dash speed multiplier applier correctly 
+    - [ ] Dash cooldown enforced
+    - [ ] HP initialized to 100
+    - [ ] Player cannot leave screen bounds
+    - [ ] No runtime errors
 
 
 ### CRITICAL REMINDER ###
-- Player mechanics only
-- No combat yet
+- Player HP must be 100
+- Movement and dash must use defined numeric parameters
+- Deterministic logic only
+- 30-room structure and AI Director remain untouched

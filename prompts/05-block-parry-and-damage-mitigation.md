@@ -3,6 +3,8 @@
 ### MANDATORY DIRECTIVE ###
 You are an expert Python programmer.
 
+**CRITICAL**: Implement deterministic defensive mechanics.
+
 
 ## **MANDATORY**: OBJECTIVE 
 Implement timing-based block/parry with damage reduction.
@@ -16,17 +18,35 @@ Implement timing-based block/parry with damage reduction.
 
 ## **CRITICAL**: IMPLEMENTATION REQUIREMENTS 
 
+### Defensive Parameters
 - Block key: L
-- Parry window → 100% reduction
-- Block → 60% reduction
-- Deterministic timing
+- Block Reduction: **60%**
+- Parry Reduction: **100%**
+- Parry Window: **120 ms**
+
+### Rules
+- If hit occurs inside parry window -> 100% reduction
+- If blocking outside window -> 60% reduction
+- Otherwise -> full damage
+- No random chance allowed
+
+### **MANDATORY**: Parameter Source
+Values must match Section 9 of the Parameters Spec
+
+
+## **MANDATORY**: ARCHITECTURE CONSTRAINTS
+
+- No randomness in defense logic
+- Must integrate cleanly with combat system
 
 
 ## **MANDATORY**: VERIFICATION
 
-- [ ] Block reduces damage
-- [ ] Parry negates damage when timed correctly
+- [ ] Block reduces damage by 60%
+- [ ] Parry negates damage completely 
+- [ ] Timing window behaves deterministically
 
 
 ### CRITICAL REMINDER ###
-- Timing-based reduction is required
+- Defensive values are fixed
+- Deterministic timing required

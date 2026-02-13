@@ -1,11 +1,18 @@
-# CRITICAL REQUIREMENTS — 12 Final Boss and Win/Loss
+# CRITICAL REQUIREMENTS — 12 Mini Boss, Final Boss and Determinism.
 
 ### MANDATORY DIRECTIVE ###
 You are an expert Python programmer.
 
+**CRITICAL**: Implement milestone bosses and win/loss conditions deterministically.
+
 
 ## **MANDATORY**: OBJECTIVE 
-Add final boss encounter and win/loss conditions.
+
+Implement: 
+- Mini Boss encounters
+- Final Boss encounter
+- Win/Loss state transitions
+- Determinism validation
 
 
 ## **MANDATORY**: FILES TO CREATE OR MODIFY 
@@ -17,18 +24,58 @@ Add final boss encounter and win/loss conditions.
 
 ## **CRITICAL**: IMPLEMENTATION REQUIREMENTS 
 
-- Boss spawns only in room 29
-- Win: boss defeated
-- Loss: player HP reaches 0
+### Milestone Bosses
+
+Mini Bosses:
+- Room 7
+- Room 15
+- Room 23
+
+Final Boss:
+- Room 29 only
+
+Placement is fixed.
+
+### Win/Loss Conditions
+
+Win:
+- Final boss defeated
+
+Loss:
+- Player HP reaches 0
+- Reset run (roguelike reset)
+
+### Boss Determinism
+
+- Boss patterns must be deterministic.
+- No internal random calls.
+- Variation must come from seeded RNG at run start only.
+
+### Final Boss Arena Rules (If Hazards Active)
+
+- Lava ≤ 20%
+- Walls ≤ 20%
+- Safe Area ≥ 65%
+
+Must satisfy global safety constraints.
+
+
+## **MANDATORY**: ARCHITECTURE CONSTRAINTS
+
+- Boss logic separate from AI Director. 
+- AI Director does not modify boss stats directly. 
 
 
 ## **MANDATORY**: VERIFICATION 
 
-- [ ] Boss appears in final room
-- [ ] Win/Loss screens trigger correctly
-- [ ] Restart works
+- [ ] Mini bosses appear at correct indices
+- [ ] Final boss only at room 29
+- [ ] Win triggers correctly
+- [ ] Loss resets correctly 
+- [ ] Same seed -> identical behavior
 
 
 ### CRITICAL REMINDER ###
-- Final boss required
-- 30-room structure fixed
+- FMilestone indices fixed
+- Deterministic logic only
+- No stat mutation from Director
