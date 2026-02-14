@@ -5,7 +5,7 @@ You are an expert Python programmer.
 
 
 ## **MANDATORY**: OBJECTIVE 
-Spawn enemies per room and lock progression until cleared.
+Spawn enemies using defined archetypes per room and lock progression until cleared.
 
 
 ## **MANDATORY**: FILES TO CREATE OR MODIFY 
@@ -16,16 +16,43 @@ Spawn enemies per room and lock progression until cleared.
 
 ## **CRITICAL**: IMPLEMENTATION REQUIREMENTS 
 
-- Enemies spawn per room
-- Ambush rooms delay spawn
-- Room clears when enemies defeated
+Spawner must:
+
+- Spawn only defined archetypes from Section 10
+- Control enemy count
+- Support ambush delay
+- Remove enemies upon room clear
+
+### Composition Rules
+Spawner may vary:
+- Number of enemies
+- Mix of archetypes
+- Elite modifier appliaction
+
+Spawner may NOT modify:
+- Base HP
+- Base Damage
+- Base Speed
+
+### Elite Modifier
+- HP +40%
+- Damage +20@
+- Visual indicator required
+
+
+## **MANDATORY**: ARCHITECTURE CONSTRAINTS
+
+- No AI Director logic inside spawner
+- Spawner responds to directives only
 
 
 ## **MANDATORY**: VERIFICATION 
 
-- [ ] Combat rooms lock progression
-- [ ] Ambush delay is visible
+- [ ] Enemies spawn correctly
+- [ ] Room remains locked until cleared
+- [ ] Elite modifiers apply correctly
 
 
 ### CRITICAL REMINDER ###
-- Spawner prepares for AI Director
+- Composition scaling only
+- No stat rewriting

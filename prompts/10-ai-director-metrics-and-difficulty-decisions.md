@@ -3,6 +3,8 @@
 ### MANDATORY DIRECTIVE ###
 You are an expert Python programmer.
 
+**CRITICAL**: AI Director must remain deterministic and high-level.
+
 
 ## **MANDATORY**: OBJECTIVE 
 Implement deterministic AI Director and MetricsTracker.
@@ -17,16 +19,47 @@ Implement deterministic AI Director and MetricsTracker.
 
 ## **CRITICAL**: IMPLEMENTATION REQUIREMENTS 
 
-- Track HP, deaths, speed, combat outcomes
-- Output spawn directives only
-- No randomness inside AI Director
+### Metrics Tracked
+- Player health %
+- Death count
+- Room clear time
+- Recent combat performance
+
+### AI Director May Adjust
+- Spawn timing
+- Enemy count
+- Archetype mix
+- Ambush frequency
+- Healing drop rate
+- Elite modifier usage
+
+### AI Director May NOT Modify
+- Player base stats
+- Enemy base damage
+- Damage ranges
+- Core combat mechanics
+
+### Determinism rule
+- No random calls inside AI Director
+- Decisions must be pure functions of metrics + config
+
+### **MANDATORY**: Parameter Source
+All archetypes and base values from Section 9-10 of Parameters Spec.
+
+
+## **MANDATORY**: ARCHITECTURE CONSTRAINTS
+
+- AI Director outputs spawn directives only
+- No direct enemy control
 
 
 ## **MANDATORY**: VERIFICATION
 
-- [ ] Same metrics → same output
-- [ ] Low HP reduces difficulty
+- [ ] Same metrics -> same directives
+- [ ] Low HP reduces enemy count
+- [ ] Director does not alter base stats
 
 
 ### CRITICAL REMINDER ###
-- AI Director is deterministic and high-level
+- Deterministic AI Director only
+- No stat mutation allowed

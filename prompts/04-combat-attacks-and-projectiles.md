@@ -3,9 +3,11 @@
 ### MANDATORY DIRECTIVE ###
 You are an expert Python programmer using **Pygame**.
 
+**CRITICAL**: Implement player short-range and long-range attacks only.
+
 
 ## **MANDATORY**: OBJECTIVE 
-Add short-range and long-range player attacks.
+Add melee and projectile attacks using deterministic combat parameters.
 
 
 ## **MANDATORY**: FILES TO CREATE OR MODIFY
@@ -18,19 +20,49 @@ Add short-range and long-range player attacks.
 
 ## **CRITICAL**: IMPLEMENTATION REQUIREMENTS 
 
-- Short attack damage: 8–12
-- Long attack damage: 15–25
-- Damage generated via centralized RNG
-- Dummy target allowed for testing
+### Short Attack (Melee)
+- Damage Range: **8–12**
+- Cooldown: **0.50 sec**
+- Hitbox Range: **50 px**
+- Hitbox Width: **70 px**
+- Knockback: **8 px**
+
+### Long Attack (Projectile)
+- Damage Range: **15–25**
+- Cooldown: **0.80 sec**
+- Projectile Speed: **520 px/sec**
+- Lifetime: **1.2 sec**
+- Projectile Radius: **6 px**
+- Max Active Projectiles: **3**
+
+### Damage Rules
+- Damage must use centralized seeded RNG
+- No 'random' usage outside 'rng.py'
+- Damage must not exceed defined ranges
+
+### **MANDATORY**: Parameter Source
+- All numerical values must match Section 9 of the Parameters Spec.
+
+
+## **MANDATORY**: ARCHITECTURE CONSTRAINTS
+
+- No enemy scaling logic here beyond dummy target
+- No AI Director logic here
+- Combat must remain reusable
 
 
 ## **MANDATORY**: VERIFICATION 
 
 - [ ] J performs melee attack
 - [ ] K fires projectile
+- [ ] Short attack deals 8-12 damage
+- [ ] Long attack deals 15-25 damage
+- [ ] Cooldowns enforced
+- [ ] Projectile limits enforced
+- [ ] No randomness outside RNG module
 - [ ] Damage always within required ranges
 
 
 ### CRITICAL REMINDER ###
-- Damage ranges are fixed
-- Central RNG only
+- Do not invent damage values
+- Keep deterministic structure
