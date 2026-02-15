@@ -40,6 +40,18 @@ Add melee and projectile attacks using deterministic combat parameters.
 - No 'random' usage outside 'rng.py'
 - Damage must not exceed defined ranges
 
+### Damage Resolution Order (MANDATORY)
+
+All damage applications must follow this exact order:
+
+1. Check collision / hit confirmation
+2. Apply block/parry logic
+3. Apply damage reduction modifiers
+4. Apply health change (HP -= final_damage)
+5. Check death condition (HP <= 0 triggers death state)
+6. Parry overrides block.
+7. Environmental hazards follow the same order except block/parry may not apply.
+
 ### **MANDATORY**: Parameter Source
 - All numerical values must match Section 9 of the Parameters Spec.
 
@@ -61,7 +73,6 @@ Add melee and projectile attacks using deterministic combat parameters.
 - [ ] Projectile limits enforced
 - [ ] No randomness outside RNG module
 - [ ] Damage always within required ranges
-
 
 ### CRITICAL REMINDER ###
 - Do not invent damage values

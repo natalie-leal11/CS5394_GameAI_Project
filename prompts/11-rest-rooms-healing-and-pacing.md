@@ -39,6 +39,14 @@ Safe rooms must contain zero lava.
 
 Upgrades must be parameter-driven.
 
+### Target Combat Durations (Balancing Reference)
+- Standard: 20–40 seconds
+- Elite: 40–60 seconds
+- Mini Boss: 45–75 seconds
+- Final Boss: 60–120 seconds
+
+These values are references only and must not enforce timers.
+
 ### AI Director Bias
 
 Director may bias upgrade offerings:

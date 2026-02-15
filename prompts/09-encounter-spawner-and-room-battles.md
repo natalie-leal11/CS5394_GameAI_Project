@@ -36,15 +36,22 @@ Spawner may NOT modify:
 
 ### Elite Modifier
 - HP +40%
-- Damage +20@
+- Damage +20%
 - Visual indicator required
 
+### CRITICAL: Global Combat Limits
+- MAX_ACTIVE_ENEMIES_PER_ROOM = 10
+- MAX_REINFORCEMENT_WAVES_PER_ROOM = 2
+
+If active enemy cap is reached:
+- Skip or delay reinforcement/summon.
+All summons count toward active enemy cap.
 
 ## **MANDATORY**: ARCHITECTURE CONSTRAINTS
 
 - No AI Director logic inside spawner
 - Spawner responds to directives only
-
+- Combat pacing should aim to align with target duration ranges defined in design specification.
 
 ## **MANDATORY**: VERIFICATION 
 

@@ -29,7 +29,7 @@ Biome Ranges:
 - Biome 1 -> rooms 0-7
 - Biome 2 -> rooms 8-15
 - Biome 3 -> rooms 16-23
-- Biome 4 0> rooms 24-29
+- Biome 4 -> rooms 24-29
 
 Milestones: 
 - Room 0 -> Start 

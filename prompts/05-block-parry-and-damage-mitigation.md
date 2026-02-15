@@ -29,6 +29,7 @@ Implement timing-based block/parry with damage reduction.
 - If blocking outside window -> 60% reduction
 - Otherwise -> full damage
 - No random chance allowed
+- Block/parry must integrate with the global Damage Resolution Order defined in Prompt 04.
 
 ### **MANDATORY**: Parameter Source
 Values must match Section 9 of the Parameters Spec

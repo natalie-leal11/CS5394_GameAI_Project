@@ -49,6 +49,18 @@ Room size rules:
 
 Enemies must avoid lava if possible (simple rule).
 
+### **MANDATORY**: Lava Damage
+
+- Damage = 8 HP per second
+- Ignores block/parry
+- Dash invulnerability applies
+
+### **MANDATORY**: Slow Terrain
+
+- Movement speed reduced by 30%
+- Applies to player and enemies
+- Dash unaffected
+
 ### **MANDATORY**: Hazard Caps Per Biome
 
 Biome 1:
@@ -65,7 +77,7 @@ Biome 2:
 
 Biome 3:
 - Lava: 15-25%
-- Slow: 10-20@
+- Slow: 10-20%
 - Walls: 20-25%
 - Minimum Safe Area ≥ 50%
 
@@ -119,6 +131,19 @@ Implement:
     - Walls (gray)
     - Safe tiles (neutral)
 - Rendering must match generated layout exactly.
+
+### Global Graphics Requirements (Pygame)
+
+- Style: 2D top-down pixel-art inspired (not isometric).
+- Tile size: 32x32 pixels.
+- Room sizes (8x8, 12x12, 16x16) must render consistently using tile grid.
+- Camera: fixed room view (no dynamic zoom).
+- Elite enemies must have a visual indicator (color tint or glow overlay).
+- Use simple hit flash or small particle effect for attack feedback.
+- No dynamic lighting engine.
+- No shaders.
+- No 3D perspective.
+- Rendering must remain fully deterministic.
 
 ### **MANDATORY**: Determinism Rule
 
