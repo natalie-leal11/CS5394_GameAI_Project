@@ -37,6 +37,7 @@ Create/modify files:
 
 ### `src/game/config.py`
 - Define: `WIDTH`, `HEIGHT`, `FPS`, `TITLE`
+- Define: TILE_SIZE = 32
 
 ### `src/game/rng.py`
 - Implement a centralized RNG using a single internal `random.Random`
@@ -52,6 +53,12 @@ Create/modify files:
 - Handle QUIT cleanly
 - Fill background and call `pygame.display.flip()`
 
+### Graphics Baseline
+- Top-down 2D pixel style
+- Tile-based rendering (32x32 tiles)
+- Rendering layer separated from gameplay logic
+- No isometric perspective
+- No dynamic lighting engine
 
 ## **MANDATORY**: VERIFICATION
 1. Run: `python -m src.game.main`

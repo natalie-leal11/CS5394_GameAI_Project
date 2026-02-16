@@ -40,6 +40,18 @@ No other files may be modified.
 - Dash cannot stack
 - Dash cannot exit boundaries
 
+### Visual Identity Constraints
+
+- Player must use blue/teal accent color.
+- Dash renders faint trail (0.2s fade).
+- Parry renders brief white flash.
+- Long attack visually distinct from short attack.
+- On damage taken, player must flash red briefly (≤ 0.1s).
+- Enemies must flash on hit for visual feedback.
+
+Minimum animations:
+idle, walk, short attack, long attack, dash, death.
+
 ### **MANDATORY**: Parameter Source
 All numerical values must match SEction 9 of the Parameters Spec.
 Do NOT invent alternate values/

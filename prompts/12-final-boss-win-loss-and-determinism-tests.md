@@ -45,6 +45,22 @@ Loss:
 - Player HP reaches 0
 - Reset run (roguelike reset)
 
+### Run Summary Logging
+On win or loss, append run summary to:
+
+- `logs/summary.json`
+
+Summary must include:
+
+- seed
+- win_or_loss
+- total_rooms_cleared
+- total_time
+- total_damage_taken
+
+This data is used for offline difficulty analysis and RL tuning.
+No runtime reading of summary files allowed.
+
 ### Boss Determinism
 
 - Boss patterns must be deterministic.
@@ -59,6 +75,20 @@ Loss:
 
 Must satisfy global safety constraints.
 
+### Final Boss Phase Rules (Hard Lock)
+Phase 1: 100% → 50% HP  
+Phase 2: 50% → 0% HP  
+
+Trigger: HP ≤ 50%  
+- 2 seconds invulnerability  
+- Visual transformation  
+- No HP reset  
+
+Phase 2:
+- Cooldown reduced by 20%
+- Movement speed increased by 10%
+- One summon event at phase start
+- No further summons
 
 ## **MANDATORY**: ARCHITECTURE CONSTRAINTS
 
@@ -76,6 +106,6 @@ Must satisfy global safety constraints.
 
 
 ### CRITICAL REMINDER ###
-- FMilestone indices fixed
+- Milestone indices fixed
 - Deterministic logic only
 - No stat mutation from Director

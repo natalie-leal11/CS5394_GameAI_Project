@@ -48,6 +48,13 @@ Implement the following archetypes exactly:
 - Projectile Damage: 10
 - Fire Interval: 1.5 sec
 
+### Elite Summon Constraint
+- Each elite enemy may summon once per encounter.
+- Total elite summons across entire run must not exceed 3.
+- Mini boss may summon once per fight.
+- Final boss may summon once (at phase 2 start).
+- Boss summons do NOT count toward elite summon cap.
+
 ### General Rules
 - Enemies remain confined to current room 
 - Simple chase/attack only
