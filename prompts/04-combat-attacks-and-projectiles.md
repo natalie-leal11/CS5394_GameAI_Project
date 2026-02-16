@@ -40,7 +40,7 @@ Add melee and projectile attacks using deterministic combat parameters.
 - No 'random' usage outside 'rng.py'
 - Damage must not exceed defined ranges
 
-### Damage Resolution Order (MANDATORY)
+### **MANDATORY**: Damage Resolution Order
 
 All damage applications must follow this exact order:
 
@@ -53,7 +53,7 @@ All damage applications must follow this exact order:
 7. Environmental hazards follow the same order except block/parry may not apply.
 
 ### **MANDATORY**: Parameter Source
-- All numerical values must match Section 9 of the Parameters Spec.
+- All numerical values must match Section 4 of AI_Dungeon_Parameters_discuss_FULL.md.
 
 
 ## **MANDATORY**: ARCHITECTURE CONSTRAINTS

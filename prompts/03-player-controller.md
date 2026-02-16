@@ -53,7 +53,7 @@ Minimum animations:
 idle, walk, short attack, long attack, dash, death.
 
 ### **MANDATORY**: Parameter Source
-All numerical values must match SEction 9 of the Parameters Spec.
+All numerical values must match Section 4 of AI_Dungeon_Parameters_discuss_FULL.md.
 Do NOT invent alternate values/
 
 

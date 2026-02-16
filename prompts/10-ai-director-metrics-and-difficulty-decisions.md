@@ -106,7 +106,7 @@ RL may NOT tune:
 RL-adjustable parameters must not include biome hazard caps or dungeon layout rules.
 
 ### **MANDATORY**: Parameter Source
-All archetypes and base values from Section 9-10 of Parameters Spec.
+All archetypes and base values from Section 4 of AI_Dungeon_Parameters_discuss_FULL.md.
 
 
 ## **MANDATORY**: ARCHITECTURE CONSTRAINTS

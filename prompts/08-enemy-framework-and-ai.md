@@ -63,7 +63,7 @@ Implement the following archetypes exactly:
 - Deterministic timers only
 
 ### **MANDATORY**: Parameter Source
-Values must match Section 10 of the Parameters Spec. 
+Values must match Section 4 of the AI_Dungeon_Parameters_discuss_FULL.md. 
 
 
 ## **MANDATORY**: ARCHITECTURE CONSTRAINTS
