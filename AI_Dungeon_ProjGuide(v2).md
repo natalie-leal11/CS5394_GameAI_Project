@@ -30,12 +30,12 @@ Each file name must match exactly.
 5. **05-block-parry-and-damage-mitigation.md** — Implement block/parry timing-based reduction
 6. **06-dungeon-plan-30-rooms-and-milestones.md** — Implement deterministic 30-room plan generation
 7. **07-room-controller-and-progression.md** — Implement room progression and clearing rules
-8. **13-room-rendering-and-hazards-and-system.d** -  
-9.**08-enemy-framework-and-ai.md** — Implement simple aggressive enemies (room-confined)
+8. **13-room-rendering-and-hazards-and-system.d** - Implement room rendering and hazard placement.
+9.**08-enemy-framework-and-ai.md** — Implement enemies (room-confined)
 10. **09-encounter-spawner-and-room-battles.md** — Implement encounter spawning + lock-until-clear
 11. **10-ai-director-metrics-and-difficulty-decisions.md** — Implement deterministic AI Director + metrics
 12. **11-rest-rooms-healing-and-pacing.md** — Implement rest rooms + healing + pacing knobs
-13. **12-final-boss-win-loss-and-determinism-tests.md** — Implement final boss + win/loss + determinism checks
+13. **12-final-boss-win-loss-and-determinism-tests.md** — Implement mini bosses + final boss + win/loss + determinism checks
 
 
 
