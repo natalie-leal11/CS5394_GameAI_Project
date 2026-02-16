@@ -30,8 +30,8 @@ Each file name must match exactly.
 5. **05-block-parry-and-damage-mitigation.md** — Implement block/parry timing-based reduction
 6. **06-dungeon-plan-30-rooms-and-milestones.md** — Implement deterministic 30-room plan generation
 7. **07-room-controller-and-progression.md** — Implement room progression and clearing rules
-8. **13-room-rendering-and-hazards-and-system.d** - Implement room rendering and hazard placement.
-9.**08-enemy-framework-and-ai.md** — Implement enemies (room-confined)
+8. **13-room-rendering-and-hazards-system.md** — Implement room rendering and hazard placement.
+9. **08-enemy-framework-and-ai.md** — Implement enemies (room-confined)
 10. **09-encounter-spawner-and-room-battles.md** — Implement encounter spawning + lock-until-clear
 11. **10-ai-director-metrics-and-difficulty-decisions.md** — Implement deterministic AI Director + metrics
 12. **11-rest-rooms-healing-and-pacing.md** — Implement rest rooms + healing + pacing knobs
@@ -109,7 +109,7 @@ Global safety constraints:
 - Spawn safe
 - Exit safe
 - 3x3 safe zone exists
-- Valis path spawn -> exit
+- Valid path spawn -> exit
 
 Hazards must be deterministic.
 
@@ -120,7 +120,7 @@ AI Director cannot modify hazards.
 - No internal random calls
 - Pure function of: 
    - Metrics 
-   difficutly_params.py
+   difficulty_params.py
 
 Tracks:
   - HP %
@@ -154,11 +154,11 @@ Safe Rooms:
 - **No lava allowed**
 
 Director bias:
-- Stuggling -> degense/HP
+- Struggling -> defense/HP
 - Stable -> balanced
 - Dominating -> offense/speed
 
-Upgradeds must remain bounded and parameter-driven.
+Upgrades must remain bounded and parameter-driven.
 
 #### Player Mechanics
 - Base HP = 100
@@ -174,7 +174,7 @@ Archetypes:
 - Flanker
 - Brute
 - Heavy
-- Ranged Supprossor
+- Ranged Suppressor
 
 Rules: 
 - Room confined
@@ -225,7 +225,7 @@ Run summary logging required.
 - **AIDirector**: outputs deterministic difficulty directives (no randomness)
 - **Enemies**: simple chase/attack logic only
 
-No cross-reponsibility leakage
+No cross-responsibility leakage
 
 
 ## **MANDATORY**: COMMON ISSUES AND SOLUTIONS
@@ -253,7 +253,7 @@ No cross-reponsibility leakage
    - Retry generation using 'seed + room_index + retry_counter'; retry_counter increments deterministically.
    - Abort after 10 tries and fallback to safe template layout (predefined biome-valid layout).
 
-6. **Boss appearing outside miletone index**
+6. **Boss appearing outside milestone index**
    - Enforce milestone overried inside 'DungeonGenerator':
       - Before returning room plan, hard-set:
          - room[7] = MINI_BOSS
