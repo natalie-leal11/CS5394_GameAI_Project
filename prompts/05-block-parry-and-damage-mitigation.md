@@ -32,7 +32,7 @@ Implement timing-based block/parry with damage reduction.
 - Block/parry must integrate with the global Damage Resolution Order defined in Prompt 04.
 
 ### **MANDATORY**: Parameter Source
-Values must match Section 9 of the Parameters Spec
+Values must match Section 4 of AI_Dungeon_Parameters_discuss_FULL.md.
 
 
 ## **MANDATORY**: ARCHITECTURE CONSTRAINTS
