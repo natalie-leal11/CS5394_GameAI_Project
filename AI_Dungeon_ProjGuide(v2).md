@@ -249,12 +249,12 @@ No cross-responsibility leakage
    - Ensure decisions are pure functions of metrics + params
 
 5. **Hazards exceeding biome caps**
-   - Regenerate layout uisng same + deterministic retry counter. 
+   - Regenerate layout using same seed + deterministic retry counter. 
    - Retry generation using 'seed + room_index + retry_counter'; retry_counter increments deterministically.
    - Abort after 10 tries and fallback to safe template layout (predefined biome-valid layout).
 
 6. **Boss appearing outside milestone index**
-   - Enforce milestone overried inside 'DungeonGenerator':
+   - Enforce milestone override inside 'DungeonGenerator':
       - Before returning room plan, hard-set:
          - room[7] = MINI_BOSS
          - room[15] = MINI_BOSS
