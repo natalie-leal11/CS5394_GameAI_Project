@@ -1,0 +1,56 @@
+@startuml
+title AI Director Sequence — Core Flow
+skinparam linetype ortho
+
+actor Player
+participant GameController
+participant RoomFlowManager
+participant AIDirector
+participant EncounterManager
+participant CombatResolver
+participant RunLogger
+
+== Start Run ==
+Player -> GameController : Start New Run
+GameController -> RoomFlowManager : initialize(seed)
+
+note over GameController, RoomFlowManager
+Dungeon generated (30 rooms)
+Difficulty params loaded (read-only)
+end note
+
+loop For each room
+  Player -> RoomFlowManager : Enter Room
+
+  RoomFlowManager -> AIDirector : requestEncounter(room)
+  AIDirector --> RoomFlowManager : EncounterPlan
+
+  RoomFlowManager -> EncounterManager : applyPlan(plan)
+  EncounterManager -> CombatResolver : beginCombat()
+
+  Player -> CombatResolver : fight()
+  CombatResolver --> RoomFlowManager : roomCleared()
+
+  RoomFlowManager -> AIDirector : updateMetrics(roomResult)
+  RoomFlowManager -> RunLogger : logRoom()
+end
+
+== End Run ==
+alt Final Boss defeated
+  RoomFlowManager -> RunLogger : logSummary(win)
+  GameController -> Player : Victory
+else Player HP <= 0
+  RoomFlowManager -> RunLogger : logSummary(loss)
+  GameController -> Player : Defeat
+end
+
+note over AIDirector
+Deterministic:
+decisions depend only on metrics + loaded params
+end note
+
+note over CombatResolver
+Hard caps enforced (enemies/projectiles/waves)
+end note
+
+@enduml
