@@ -1,0 +1,79 @@
+@startuml
+title High-Level Architecture — Layered View
+
+top to bottom direction
+skinparam shadowing false
+skinparam roundcorner 12
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam ArrowThickness 1.2
+skinparam linetype ortho
+
+' -----------------------
+package "Presentation Layer" {
+  [Main Menu UI]
+  [HUD / Overlays]
+  [Render Engine]
+}
+
+package "Gameplay Layer" {
+  [Game Loop / Controller]
+  [Room Flow Manager]
+  [Combat Resolver]
+}
+
+package "AI Director Layer" {
+  [Metrics Tracker]
+  [AI Director]
+  [Difficulty Params Loader]
+}
+
+package "Dungeon Generation Layer" {
+  [Dungeon Generator]
+  [Seed Manager]
+  [Room Template Library]
+  [Hazard Placer]
+  [Hazard Validator]
+}
+
+package "Data & Logging Layer" {
+  [Run Logger]
+  [Log Writer]
+}
+
+package "RNG Module (Centralized)" {
+  [Seeded RNG API]
+}
+
+' -----------------------
+' Presentation → Gameplay
+[Main Menu UI] --> [Game Loop / Controller]
+[HUD / Overlays] --> [Game Loop / Controller]
+[Render Engine] --> [Game Loop / Controller]
+
+' Gameplay internal
+[Game Loop / Controller] --> [Room Flow Manager]
+[Room Flow Manager] --> [Combat Resolver]
+[Room Flow Manager] --> [AI Director]
+[Room Flow Manager] --> [Dungeon Generator]
+[Room Flow Manager] --> [Run Logger]
+
+' AI Layer
+[Metrics Tracker] --> [AI Director]
+[AI Director] --> [Difficulty Params Loader]
+
+' Generation Layer
+[Dungeon Generator] --> [Seed Manager]
+[Dungeon Generator] --> [Room Template Library]
+[Dungeon Generator] --> [Hazard Placer]
+[Hazard Placer] --> [Hazard Validator]
+
+' RNG (straight downward links)
+[Seed Manager] --> [Seeded RNG API]
+[Hazard Placer] --> [Seeded RNG API]
+[Room Template Library] --> [Seeded RNG API]
+
+' Logging
+[Run Logger] --> [Log Writer]
+
+@enduml
