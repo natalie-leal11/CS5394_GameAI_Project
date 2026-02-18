@@ -1,0 +1,1 @@
+# Combat, hazards, etc.
