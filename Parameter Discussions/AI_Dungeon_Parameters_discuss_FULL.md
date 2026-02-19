@@ -73,7 +73,7 @@ Room order and exact distribution can vary by seed **within these bounds**.
 | Ambush | 1–2 |
 | Safe / Rest | 1 |
 | Corridor / Transition | 0–1 |
-| Elite | 1 |
+| Elite | 2 |
 | Mini Boss | 1 (fixed at end biome) |
 
 **Goal:** moderate pressure; introduce tighter rooms + more hazards.
@@ -87,7 +87,7 @@ Room order and exact distribution can vary by seed **within these bounds**.
 | Ambush | 2–3 |
 | Safe / Rest | 1 |
 | Corridor / Transition | 0–1 |
-| Elite | 1 |
+| Elite | 3 |
 | Mini Boss | 1 (fixed at end biome) |
 
 **Goal:** high pressure; clustered hazards; aggressive encounters.
@@ -101,7 +101,7 @@ Room order and exact distribution can vary by seed **within these bounds**.
 | Ambush | 1 |
 | Safe / Rest | 1 (checkpoint before final boss) |
 | Corridor / Transition | 0–1 |
-| Elite | 1 |
+| Elite | 4 |
 | Final Boss | 1 (fixed at Room 29) |
 
 **Goal:** intense pacing; ensure player reaches final boss with a fair checkpoint.
