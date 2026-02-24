@@ -308,3 +308,6 @@ Yes, we should definitely have predifined spawn anchors per room.
 We could have some spawn groups. How many do you think we would need to create? To keep the game interesting enough
 
 Yes, we should have a deterministic function. 
+
+
+
