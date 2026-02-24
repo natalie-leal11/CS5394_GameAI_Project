@@ -1,3 +1,44 @@
+# Adaptive AI Dungeon — Requirements Analysis (Rebuilt)
+
+**Group Members:** Natalie Cristina Leal Blanco, Maham Asif  
+**Last rebuilt:** 2026-02-23 (UTC)
+
+---
+
+## Table of Contents
+1. Scope and Goals
+2. Game Launch & UI Flow
+3. Controls & Input Mapping
+4. Settings & Save System
+5. Run Structure (Roguelike Rules)
+6. Rendering, Camera, and Resolution
+7. Asset Directory Contract (Authoritative)
+8. Room 0 — Start Room (Story + Dummy)
+9. Biome 1 — Structure, Difficulty Curve, Visual Identity
+10. Biome 1 — Rooms (Templates + Safe Zones + Anchors)
+11. Biome 1 — Hazards (Placement + Damage + Slow)
+12. Biome 1 — Spawning System (Telegraphs + Portal FX)
+13. Biome 1 — Enemy Composition (Hard Caps Per Room Type)
+14. Combat System (Player + Enemy Ranges + Timing)
+15. Room Clear Rule (Hard-Locked)
+16. AI Director (Flexible Slot Rule + Bounds)
+17. Logging for RL (JSONL Contract)
+18. Optional LLM Features (Story Generation)
+19. Determinism & Seeds (No seed display)
+20. Open Items / Asset TODO Checklist
+---
+
+## 1) Scope and Goals
+
+- Deterministic roguelike dungeon crawler with seeded procedural content.
+- MVP scope: full UI start flow, Room 0, and complete Biome 1.
+- RL is offline/analysis-first: logs gameplay, later tunes bounded parameters.
+- Optional LLM: story flavor text with deterministic fallback.
+
+---
+
+## 2) Game Launch & UI Flow
+
 # Requirements Analysis — Game Start to Room 0 (UI + Assets + Prompts)
 
 **Project:** Adaptive AI Dungeon  
@@ -440,6 +481,509 @@ Do not describe game mechanics
 
 
 Fallback is the static book story text in section 9.4.3.
+
+---
+
+## 7) Asset Directory Contract (Authoritative)
+
+### 7.1 Assets present in `assets.zip`
+
+- `assets/backgrounds/controls_bg.png`
+- `assets/backgrounds/main_menu_bg.png`
+- `assets/backgrounds/room0_bg.png`
+- `assets/backgrounds/settings_bg.png`
+- `assets/backgrounds/story_intro_bg.png`
+- `assets/effects/particles/ash_01_4x4.png`
+- `assets/effects/particles/ember_01_4x4.png`
+- `assets/effects/particles/ember_02_4x4.png`
+- `assets/effects/telegraphs/telegraph_aoe_ring_256x256.png`
+- `assets/effects/telegraphs/telegraph_aoe_ring_anim_256x256.png`
+- `assets/effects/telegraphs/telegraph_boss_purple_256x256.png`
+- `assets/effects/telegraphs/telegraph_boss_purple_anim_256x256.png`
+- `assets/effects/telegraphs/telegraph_boss_purple_line_256x64.png`
+- `assets/effects/telegraphs/telegraph_boss_purple_line_anim_256x64.png`
+- `assets/effects/telegraphs/telegraph_elite_gold_32x32.png`
+- `assets/effects/telegraphs/telegraph_elite_gold_anim_32x32.png`
+- `assets/effects/telegraphs/telegraph_elite_gold_aoe_256x256.png`
+- `assets/effects/telegraphs/telegraph_elite_gold_aoe_anim_256x256.png`
+- `assets/effects/telegraphs/telegraph_ground_crack_256x64.png`
+- `assets/effects/telegraphs/telegraph_ground_crack_anim_256x64.png`
+- `assets/effects/telegraphs/telegraph_tile_32x32.png`
+- `assets/effects/telegraphs/telegraph_tile_anim_32x32.png`
+- `assets/effects/vfx/parry_flash/frame_01.png`
+- `assets/effects/vfx/parry_flash/frame_02.png`
+- `assets/effects/vfx/parry_flash/frame_03.png`
+- `assets/entities/enemies/brute/death/frame_01.png`
+- `assets/entities/enemies/brute/death/frame_02.png`
+- `assets/entities/enemies/brute/death/frame_03.png`
+- `assets/entities/enemies/brute/death/frame_04.png`
+- `assets/entities/enemies/brute/death/frame_05.png`
+- `assets/entities/enemies/brute/death/frame_06.png`
+- `assets/entities/enemies/brute/hit/frame_01.png`
+- `assets/entities/enemies/brute/hit/frame_02.png`
+- `assets/entities/enemies/brute/idle/frame_01.png`
+- `assets/entities/enemies/brute/idle/frame_02.png`
+- `assets/entities/enemies/brute/idle/frame_03.png`
+- `assets/entities/enemies/brute/idle/frame_04.png`
+- `assets/entities/enemies/brute/recovery/frame_01.png`
+- `assets/entities/enemies/brute/recovery/frame_02.png`
+- `assets/entities/enemies/brute/recovery/frame_03.png`
+- `assets/entities/enemies/brute/slam/frame_01.png`
+- `assets/entities/enemies/brute/slam/frame_02.png`
+- `assets/entities/enemies/brute/slam/frame_03.png`
+- `assets/entities/enemies/brute/slam/frame_04.png`
+- `assets/entities/enemies/brute/walk/frame_01.png`
+- `assets/entities/enemies/brute/walk/frame_02.png`
+- `assets/entities/enemies/brute/walk/frame_03.png`
+- `assets/entities/enemies/brute/walk/frame_04.png`
+- `assets/entities/enemies/brute/walk/frame_05.png`
+- `assets/entities/enemies/brute/walk/frame_06.png`
+- `assets/entities/enemies/brute/windup/frame_01.png`
+- `assets/entities/enemies/brute/windup/frame_02.png`
+- `assets/entities/enemies/brute/windup/frame_03.png`
+- `assets/entities/enemies/brute/windup/frame_04.png`
+- `assets/entities/enemies/elite_guardian/death/frame_03.png`
+- `assets/entities/enemies/elite_guardian/death/frame_04.png`
+- `assets/entities/enemies/elite_guardian/death/frame_05.png`
+- `assets/entities/enemies/elite_guardian/death/frame_06.png`
+- `assets/entities/enemies/elite_guardian/death/frame_07.png`
+- `assets/entities/enemies/elite_guardian/death/frame_08.png`
+- `assets/entities/enemies/elite_guardian/hit/frame_01.png`
+- `assets/entities/enemies/elite_guardian/hit/frame_02.png`
+- `assets/entities/enemies/elite_guardian/idle/frame_01.png`
+- `assets/entities/enemies/elite_guardian/idle/frame_02.png`
+- `assets/entities/enemies/elite_guardian/idle/frame_03.png`
+- `assets/entities/enemies/elite_guardian/idle/frame_04.png`
+- `assets/entities/enemies/elite_guardian/recovery/frame_01.png`
+- `assets/entities/enemies/elite_guardian/recovery/frame_02.png`
+- `assets/entities/enemies/elite_guardian/recovery/frame_03.png`
+- `assets/entities/enemies/elite_guardian/slam/frame_01.png`
+- `assets/entities/enemies/elite_guardian/slam/frame_02.png`
+- `assets/entities/enemies/elite_guardian/slam/frame_03.png`
+- `assets/entities/enemies/elite_guardian/slam/frame_04.png`
+- `assets/entities/enemies/elite_guardian/walk/frame_01.png`
+- `assets/entities/enemies/elite_guardian/walk/frame_02.png`
+- `assets/entities/enemies/elite_guardian/walk/frame_03.png`
+- `assets/entities/enemies/elite_guardian/walk/frame_04.png`
+- `assets/entities/enemies/elite_guardian/walk/frame_05.png`
+- `assets/entities/enemies/elite_guardian/walk/frame_06.png`
+- `assets/entities/enemies/elite_guardian/windup/frame_01.png`
+- `assets/entities/enemies/elite_guardian/windup/frame_02.png`
+- `assets/entities/enemies/elite_guardian/windup/frame_03.png`
+- `assets/entities/enemies/elite_guardian/windup/frame_04.png`
+- `assets/entities/enemies/flanker/attack/frame_01.png`
+- `assets/entities/enemies/flanker/attack/frame_02.png`
+- `assets/entities/enemies/flanker/attack/frame_03.png`
+- `assets/entities/enemies/flanker/attack/frame_04.png`
+- `assets/entities/enemies/flanker/dash/frame_01.png`
+- `assets/entities/enemies/flanker/dash/frame_02.png`
+- `assets/entities/enemies/flanker/dash/frame_03.png`
+- `assets/entities/enemies/flanker/dash/frame_04.png`
+- `assets/entities/enemies/flanker/death/frame_01.png`
+- `assets/entities/enemies/flanker/death/frame_02.png`
+- `assets/entities/enemies/flanker/death/frame_03.png`
+- `assets/entities/enemies/flanker/death/frame_04.png`
+- `assets/entities/enemies/flanker/death/frame_05.png`
+- `assets/entities/enemies/flanker/death/frame_06.png`
+- `assets/entities/enemies/flanker/hit/frame_01.png`
+- `assets/entities/enemies/flanker/hit/frame_02.png`
+- `assets/entities/enemies/flanker/idle/frame_01.png`
+- `assets/entities/enemies/flanker/idle/frame_02.png`
+- `assets/entities/enemies/flanker/idle/frame_03.png`
+- `assets/entities/enemies/flanker/idle/frame_04.png`
+- `assets/entities/enemies/flanker/walk/frame_01.png`
+- `assets/entities/enemies/flanker/walk/frame_02.png`
+- `assets/entities/enemies/flanker/walk/frame_03.png`
+- `assets/entities/enemies/flanker/walk/frame_04.png`
+- `assets/entities/enemies/flanker/walk/frame_05.png`
+- `assets/entities/enemies/flanker/walk/frame_06.png`
+- `assets/entities/enemies/mini_boss/attack_01/frame_01.png`
+- `assets/entities/enemies/mini_boss/attack_01/frame_02.png`
+- `assets/entities/enemies/mini_boss/attack_01/frame_03.png`
+- `assets/entities/enemies/mini_boss/attack_01/frame_04.png`
+- `assets/entities/enemies/mini_boss/attack_02/frame_01.png`
+- `assets/entities/enemies/mini_boss/attack_02/frame_02.png`
+- `assets/entities/enemies/mini_boss/attack_02/frame_03.png`
+- `assets/entities/enemies/mini_boss/attack_02/frame_04.png`
+- `assets/entities/enemies/mini_boss/dash/frame_01.png`
+- `assets/entities/enemies/mini_boss/dash/frame_02.png`
+- `assets/entities/enemies/mini_boss/dash/frame_03.png`
+- `assets/entities/enemies/mini_boss/dash/frame_04.png`
+- `assets/entities/enemies/mini_boss/death/frame_01.png`
+- `assets/entities/enemies/mini_boss/death/frame_02.png`
+- `assets/entities/enemies/mini_boss/death/frame_03.png`
+- `assets/entities/enemies/mini_boss/death/frame_04.png`
+- `assets/entities/enemies/mini_boss/death/frame_05.png`
+- `assets/entities/enemies/mini_boss/death/frame_06.png`
+- `assets/entities/enemies/mini_boss/death/frame_07.png`
+- `assets/entities/enemies/mini_boss/death/frame_08.png`
+- `assets/entities/enemies/mini_boss/death/frame_09.png`
+- `assets/entities/enemies/mini_boss/death/frame_10.png`
+- `assets/entities/enemies/mini_boss/hit/frame_01.png`
+- `assets/entities/enemies/mini_boss/hit/frame_02.png`
+- `assets/entities/enemies/mini_boss/idle/frame_01.png`
+- `assets/entities/enemies/mini_boss/idle/frame_02.png`
+- `assets/entities/enemies/mini_boss/idle/frame_03.png`
+- `assets/entities/enemies/mini_boss/idle/frame_04.png`
+- `assets/entities/enemies/mini_boss/move/frame_01.png`
+- `assets/entities/enemies/mini_boss/move/frame_02.png`
+- `assets/entities/enemies/mini_boss/move/frame_03.png`
+- `assets/entities/enemies/mini_boss/move/frame_04.png`
+- `assets/entities/enemies/mini_boss/move/frame_05.png`
+- `assets/entities/enemies/mini_boss/move/frame_06.png`
+- `assets/entities/enemies/mini_boss/phase_change/frame_01.png`
+- `assets/entities/enemies/mini_boss/phase_change/frame_02.png`
+- `assets/entities/enemies/mini_boss/phase_change/frame_03.png`
+- `assets/entities/enemies/mini_boss/phase_change/frame_04.png`
+- `assets/entities/enemies/mini_boss/phase_change/frame_05.png`
+- `assets/entities/enemies/mini_boss/phase_change/frame_06.png`
+- `assets/entities/enemies/mini_boss/windup/frame_01.png`
+- `assets/entities/enemies/mini_boss/windup/frame_02.png`
+- `assets/entities/enemies/mini_boss/windup/frame_03.png`
+- `assets/entities/enemies/mini_boss/windup/frame_04.png`
+- `assets/entities/enemies/swarm/attack/frame_01.png`
+- `assets/entities/enemies/swarm/attack/frame_02.png`
+- `assets/entities/enemies/swarm/attack/frame_03.png`
+- `assets/entities/enemies/swarm/attack/frame_04.png`
+- `assets/entities/enemies/swarm/death/frame_01.png`
+- `assets/entities/enemies/swarm/death/frame_02.png`
+- `assets/entities/enemies/swarm/death/frame_03.png`
+- `assets/entities/enemies/swarm/death/frame_04.png`
+- `assets/entities/enemies/swarm/death/frame_05.png`
+- `assets/entities/enemies/swarm/death/frame_06.png`
+- `assets/entities/enemies/swarm/hit/frame_01.png`
+- `assets/entities/enemies/swarm/hit/frame_02.png`
+- `assets/entities/enemies/swarm/idle/frame_01.png`
+- `assets/entities/enemies/swarm/idle/frame_02.png`
+- `assets/entities/enemies/swarm/idle/frame_03.png`
+- `assets/entities/enemies/swarm/idle/frame_04.png`
+- `assets/entities/enemies/swarm/walk/frame_01.png`
+- `assets/entities/enemies/swarm/walk/frame_02.png`
+- `assets/entities/enemies/swarm/walk/frame_03.png`
+- `assets/entities/enemies/swarm/walk/frame_04.png`
+- `assets/entities/enemies/swarm/walk/frame_05.png`
+- `assets/entities/enemies/swarm/walk/frame_06.png`
+- `assets/entities/player/attack_long/frame_01.png`
+- `assets/entities/player/attack_long/frame_02.png`
+- `assets/entities/player/attack_long/frame_03.png`
+- `assets/entities/player/attack_long/frame_04.png`
+- `assets/entities/player/attack_long/frame_05.png`
+- `assets/entities/player/attack_short/frame_01.png`
+- `assets/entities/player/attack_short/frame_02.png`
+- `assets/entities/player/attack_short/frame_03.png`
+- `assets/entities/player/attack_short/frame_04.png`
+- `assets/entities/player/block/frame_01.png`
+- `assets/entities/player/block/frame_02.png`
+- `assets/entities/player/block/frame_03.png`
+- `assets/entities/player/dash/frame_01.png`
+- `assets/entities/player/dash/frame_02.png`
+- `assets/entities/player/dash/frame_03.png`
+- `assets/entities/player/dash/frame_04.png`
+- `assets/entities/player/death/frame_01.png`
+- `assets/entities/player/death/frame_02.png`
+- `assets/entities/player/death/frame_03.png`
+- `assets/entities/player/death/frame_04.png`
+- `assets/entities/player/death/frame_05.png`
+- `assets/entities/player/death/frame_06.png`
+- `assets/entities/player/hit/frame_01.png`
+- `assets/entities/player/hit/frame_02.png`
+- `assets/entities/player/idle/frame_01.png`
+- `assets/entities/player/idle/frame_02.png`
+- `assets/entities/player/idle/frame_03.png`
+- `assets/entities/player/idle/frame_04.png`
+- `assets/entities/player/walk/frame_01.png`
+- `assets/entities/player/walk/frame_02.png`
+- `assets/entities/player/walk/frame_03.png`
+- `assets/entities/player/walk/frame_04.png`
+- `assets/entities/player/walk/frame_05.png`
+- `assets/entities/player/walk/frame_06.png`
+- `assets/fonts/PixelifySans-Variable.ttf`
+- `assets/props/altar_book.png`
+- `assets/props/door_open.png`
+- `assets/props/training_dummy.png`
+- `assets/tiles/corridor/corridor_floor_32x32.png`
+-`assets/tiles/corridor/corridor_wall_top_32x32.png`
+-`assets/tiles/corridor/corridor_wall_bottom_32x32.png`
+-`assets/tiles/corridor/corridor_wall_left_32x32.png`
+-`assets/tiles/corridor/corridor_wall_right_32x32.png`
+-`assets/tiles/corridor/corridor_corner_tl_32x32.png`
+-`assets/tiles/corridor/corridor_corner_tr_32x32.png`
+-`assets/tiles/corridor/corridor_corner_bl_32x32.png`
+-`assets/tiles/corridor/corridor_corner_br_32x32.png`
+-`assets/tiles/corridor/corridor_corners_sheet.png`
+-`assets/tiles/corridor/torch_32x32.png`
+-`assets/tiles/corridor/corridor_shadow_overlay.png`
+- `assets/tiles/doors/door_closed_32x32.png`
+- `assets/tiles/doors/door_locked_32x32.png`
+- `assets/tiles/doors/door_open_32x32.png`
+- `assets/tiles/doors/door_safe_32x32.png`
+- `assets/tiles/floor/floor_tile.png`
+- `assets/tiles/hazards/lava_tile_32x32.png`
+- `assets/tiles/hazards/lava_tile_anim_32x32.png`
+- `assets/tiles/hazards/slow_tile_32x32.png`
+- `assets/tiles/powerups/boost_attack_32x32.png`
+- `assets/tiles/powerups/boost_defence_32x32.png`
+- `assets/tiles/powerups/boost_speed_32x32.png`
+- `assets/tiles/powerups/heal_health_32x32.png`
+- `assets/tiles/walls/wall_bottom_32x32.png`
+- `assets/tiles/walls/wall_corner_bl_32x32.png`
+- `assets/tiles/walls/wall_corner_tl_32x32.png`
+- `assets/tiles/walls/wall_corner_tr_32x32.png`
+- `assets/tiles/walls/wall_left_32x32.png`
+- `assets/tiles/walls/wall_right_32x32.png`
+- `assets/ui/buttons/btn_apply.png`
+- `assets/ui/buttons/btn_back.png`
+- `assets/ui/buttons/btn_controls.png`
+- `assets/ui/buttons/btn_play.png`
+- `assets/ui/buttons/btn_play_hover.png`
+- `assets/ui/buttons/btn_play_pressed.png`
+- `assets/ui/buttons/btn_quit.png`
+- `assets/ui/buttons/btn_settings.png`
+- `assets/tiles/doors/indicators/door_exit_arrow_32x32.png`
+- `assets/tiles/doors/indicators/door_locked_icon_32x32.png`
+- `assets/tiles/doors/indicators/door_unlocked_icon_32x32.png`
+- `assets/tiles/doors/overlays/door_glow_overlay_32x32.png`
+- `assets/tiles/doors/overlays/door_lock_overlay_32x32.png`
+- `assets/tiles/doors/prompts/door_interact_prompt_bg.png`
+- `assets/tiles/doors/prompts/door_interact_prompt_key_e.png`
+- `assets/ui/hud/boss_hp_chunk_divider_8x60.png`
+- `assets/ui/hud/boss_intro_splash_panel_900x300.png`
+- `assets/ui/hud/boss_lava_cracks_overlay_780x36.png`
+- `assets/ui/hud/boss_nameplate_panel_600x80.png`
+- `assets/ui/hud/boss_phase_marker_20x40.png`
+- `assets/ui/hud/final_boss_burning_overlay_800x60.png`
+- `assets/ui/hud/final_boss_health_fill_780x36.png`
+- `assets/ui/hud/final_boss_health_frame_800x60.png`
+- `assets/ui/hud/health_bar_damage_flash_clean_192x32.png`
+- `assets/ui/hud/health_bar_fill_190x26.png`
+- `assets/ui/hud/health_bar_frame_192x32.png`
+- `assets/ui/hud/health_bar_lowhp_glow_clean_192x32.png`
+- `assets/ui/hud/icon_attack_24x24.png`
+- `assets/ui/hud/icon_defence_24x24.png`
+- `assets/ui/hud/icon_health_24x24.png`
+- `assets/ui/hud/icon_speed_24x24.png`
+- `assets/ui/hud/mini_boss_health_fill_396x24.png`
+- `assets/ui/hud/mini_boss_health_frame_400x40.png`
+- `assets/ui/hud/phase_change_flash_fullscreen_1920x1080.png`
+- `assets/ui/hud/stat_panel_bg_84x32.png`
+- `assets/ui/hud/xp_bar_fill_178x12.png`
+- `assets/ui/hud/xp_bar_frame_180x16.png`
+- `assets/ui/panels/story_panel.png`
+- ... (8 more files in assets.zip)
+
+
+### 7.2 Assets referenced in this Requirements Analysis
+
+- `assets/backgrounds/controls_bg.png`
+- `assets/backgrounds/main_menu_bg.png`
+- `assets/backgrounds/room0_bg.png`
+- `assets/backgrounds/settings_bg.png`
+- `assets/backgrounds/story_intro_bg.png`
+- `assets/effects/telegraphs/telegraph_aoe_ring_anim_256x256.png`
+- `assets/effects/telegraphs/telegraph_boss_purple_anim_256x256.png`
+- `assets/effects/telegraphs/telegraph_elite_gold_anim_32x32.png`
+- `assets/effects/telegraphs/telegraph_ground_crack_anim_256x64.png`
+- `assets/effects/telegraphs/telegraph_tile_32x32.png`
+- `assets/effects/telegraphs/telegraph_tile_anim_32x32.png`
+- `assets/fonts/PixelifySans-Variable.ttf`
+- `assets/props/altar_book.png`
+- `assets/props/door_open.png`
+- `assets/props/training_dummy.png`
+- `assets/tiles/doors/door_closed_32x32.png`
+- `assets/tiles/doors/door_locked_32x32.png`
+- `assets/tiles/doors/door_open_32x32.png`
+- `assets/tiles/doors/door_safe_32x32.png`
+- `assets/ui/buttons/btn_apply.png`
+- `assets/ui/buttons/btn_back.png`
+- `assets/ui/buttons/btn_controls.png`
+- `assets/ui/buttons/btn_play.png`
+- `assets/ui/buttons/btn_quit.png`
+- `assets/ui/buttons/btn_settings.png`
+- `assets/ui/panels/story_panel.png`
+- `assets/ui/prompts/interact_prompt_bg.png`
+- `assets/ui/sliders/slider_knob.png`
+- `assets/ui/sliders/slider_track.png`
+
+
+---
+
+## 8) Room 0 — Start Room (Story + Dummy)
+
+## 9.4 Story Interaction in Room 0 (Optional)
+
+### 9.4.1 Interaction Prompt
+**Prompt Background Asset:**
+- `assets/ui/prompts/interact_prompt_bg.png`
+
+**Prompt Text (font-rendered):**
+- “Press [E] to Read”
+
+**Behavior:**
+- Shows only within altar interaction radius.
+- Disappears when player walks away.
+
+---
+
+### 9.4.2 Story Panel Overlay
+**Panel Asset:**
+- `assets/ui/panels/story_panel.png`
+
+**Behavior:**
+- Opens when player presses **E** near altar.
+- Darkens background using a translucent overlay.
+- Disables player movement while panel is open (UI focus).
+- Closes on:
+  - ESC
+  - E again
+  - (optional) Back/Close button
+
+**Skip Rules:**
+- Fully skippable immediately.
+- No forced reading time.
+
+---
+
+### 9.4.3 Room 0 Book Story Text (Expanded)
+Displayed inside the story panel (font-rendered):
+
+> “Long ago, this dungeon was built to imprison what the world feared.  
+> Its gates have sealed once more—and you now stand within its depths.  
+>  
+> Four biomes lie between you and freedom.  
+> Each grows more hostile than the last, guarded by powerful champions who answer only to the dungeon itself.  
+>  
+> Every chamber will test you—combat arenas, sudden ambushes, narrow corridors, and rare sanctuaries of rest.  
+> Learn the movements of your enemies. Master your strikes and your dash. Choose your healing and upgrades wisely.  
+>  
+> At the end of the thirtieth room waits the final guardian.  
+> Only by defeating it can the gates reopen…  
+> and only then may you return to the outside world.”
+
+---
+
+## 9.5 Training Dummy Logic (Room 0)
+
+### 9.5.1 Purpose
+Allows player to safely test:
+- short attack
+- long attack
+- dash positioning
+
+### 9.5.2 Dummy Behavior Rules
+- Dummy does not move
+- Dummy does not attack
+- Dummy does not react (no AI)
+- Dummy does not affect room progression
+
+### 9.5.3 Dummy Health Rules
+- Dummy has infinite health **OR**
+- Dummy HP resets instantly after taking damage
+
+---
+
+## 9.6 Exit Condition (Room 0)
+- Exit is always open.
+- No requirement to read story.
+- No requirement to use dummy.
+
+**Exit Trigger:**
+- A rectangular trigger zone is placed at the top-right exit/staircase.
+- When the player enters the trigger, transition to Room 1 begins.
+
+Recommended transition:
+- Fade-out 0.5–1.0 sec, then load Room 1.
+
+---
+
+## 9.7 Determinism Constraints (Room 0)
+Room 0 must:
+- Not use seed-based randomness
+- Not spawn enemies
+- Not trigger AI Director
+- Not log combat metrics
+- Not modify difficulty parameters
+
+Room 0 is excluded from RL data collection.
+
+---
+
+## 9.8 Room 0 LLM Prompt (Optional Book Story Enhancement)
+If LLM is enabled for Room 0 book story:
+
+
+Generate an atmospheric “book text” for a dungeon start room.
+Constraints:
+
+Mention 30 rooms
+
+Mention 4 biomes
+
+Mention guardians and final boss
+
+Keep it immersive (dark fantasy)
+
+Under 180 words
+
+Do not describe game mechanics
+
+
+Fallback is the static book story text in section 9.4.3.
+
+---
+
+## 9) Biome 1 — Structure, Difficulty Curve, Visual Identity
+
+### 9.1 Difficulty Curve (Mathematically Locked Baseline)
+
+Biome 1 must follow a bounded difficulty slope. Seed may reorder within allowed skeleton, but the intensity budget must follow this curve.
+
+**Intensity scale:** `I ∈ {0,1,2,3,4,5}`
+
+| Room | Target Intensity |
+|---:|---:|
+| 1 (Start) | 0 |
+| 2 | 1 |
+| 3 | 1–2 |
+| 4 | 0–2 |
+| 5 | 2–3 |
+| 6 | 2–4 |
+| 7 | 3–4 |
+| 8 (Mini Boss) | 5 |
+
+**Anti-spike rule (Hard):** Consecutive rooms cannot increase by more than **+2** intensity.
+
+
+
+### 9.2 Visual Identity Lock (Biome 1)
+
+Theme: **Ash Dungeon / Warm Torchlight** (Hades-like contrast, readable silhouettes)
+
+**Palette (HEX):**
+- Base Shadow: `#0B0E14`
+- Floor Base: `#2A2C32`
+- Floor Highlight: `#3A3D45`
+- Wall Base: `#3B3330`
+- Wall Edge Highlight: `#5A4A42`
+- Torch Warm Light: `#E0A24A`
+- Accent Ember Red: `#B93B2D`
+- UI Gold Accent: `#D6B35A`
+
+**Hazards:**
+- Lava core: `#FF5A1F`
+- Lava mid: `#D63B1E`
+- Lava dark: `#6B1A12`
+- Slow terrain tint: `#3E4A3B`
+
+**Ambient particles:** YES (ember/ash)
+- Count: 18–28
+- Size: 2–4 px
+- Alpha: 20–40%
+- Speed: 8–14 px/sec upward drift
+
+
+---
+
+## 10–14) Biome 1 Gameplay Specs (Rooms, Hazards, Spawns, Enemies, Combat)
 
 # BIOME 1 — STRUCTURE & HAZARD LOCK (Phase 1)
 
@@ -3441,2980 +3985,507 @@ We will define win rate targets for **two audiences**:
 
 ### 1.1 New / Average Player (first-time run)
 - Target Biome 1 clear rate: **55% – 65%**
-- This matches your project goal (win probability around 60–65%) and is a good balance target for RL later.
 
-### 1.2 Skilled Player (knows mechanics)
-- Target Biome 1 clear rate: **75% – 85%**
-- Skilled players should consistently clear Biome 1 with good play.
+<!-- NOTE: Biome section trimmed to first 3000 lines for rebuild output size. Keep adding remaining sections here as you iterate. -->
 
-These are *evaluation targets*, not runtime adjustments.
 
 ---
 
-## 2) 📊 Difficulty Curve Across Rooms (Biome 1)
-
-Biome 1 = Rooms 0–7  
-(Seed can reorder room types within constraints, but difficulty still follows “early → mid → late” intent.)
-
-### 2.1 Difficulty stages
-
-#### Room 0 — Start (non-combat)
-- No difficulty
-- Tutorial + story + dummy
-
-#### Stage 1: Early (Rooms 1–2)
-**Purpose:** teach basics without ranged pressure
-
-- Combat Room A:
-  - 3–4 enemies
-  - 0 ranged
-  - hazards: low (lava 0–3%, slow 5–8%)
-- Combat Room B:
-  - 4 enemies
-  - allow 0–1 flanker
-  - hazards: low–medium
-
-Target outcome:
-- Player ends stage with **≥ 70 HP** on average.
-
----
-
-#### Stage 2: Mid (Rooms 3–5)
-**Purpose:** introduce ranged + ambush + resource decision
-
-- Safe Room (exactly 1):
-  - heal + upgrades (choose 1 of 2)
-- Ambush Room:
-  - 3–4 enemies, telegraph enforced
-  - allow 0–1 ranged OR 0–1 flanker
-  - smaller room means slightly higher tension
-- Combat Room C:
-  - 4–5 enemies
-  - allow 1 ranged
-
-Target outcome:
-- After Safe Room, player should recover to **≥ 60–85 HP** depending on play.
-
----
-
-#### Stage 3: Late (Rooms 6–7)
-**Purpose:** spike challenge but fair
-
-- Elite Room (Room 6 typically, but can vary):
-  - Elite + 2–3 supports
-  - allow 0–1 ranged
-  - hazards medium but never choke-y
-- Mini Boss Room (Room 7 fixed):
-  - boss only (no adds in MVP)
-  - cinematic boss HUD
-
-Target outcome:
-- Biome clear rate hits target 55–65% for new players.
-
----
-
-### 2.2 Room difficulty “budget” (simple scoring)
-Assign each room a difficulty score (for testing + RL reward shaping):
-
-| Room Type | Difficulty Score |
-|---|---:|
-| Combat (early) | 2 |
-| Combat (mid) | 3 |
-| Ambush | 3 |
-| Safe | 0 |
-| Elite | 5 |
-| Mini Boss | 6 |
-
-Biome 1 total expected difficulty (typical run):
-- 2 + 2 + 3 + 3 + 0 + 5 + 6 = **21**
-
-Seed reordering must keep:
-- Early rooms total difficulty ≤ 6 (first 2 rooms)
-- Mid rooms total difficulty 6–9 (next 3 rooms)
-- Late rooms total difficulty 10–12 (final 2 rooms)
-
-This keeps the curve stable even if order changes.
-
----
-
-## 3) 🧠 RL Optimization Metrics (Most Important)
-
-RL is offline (headless simulation) and exports tuned parameters:
-- enemy counts/compositions
-- hazard percentages/placements within caps
-- optional stat scaling within bounds
-- (later) boss add timing
-
-RL must optimize *more than win rate* so it doesn’t “cheat” by making runs boring.
-
----
-
-### 3.1 Primary Objective (Core)
-**Target win probability for Biome 1:** **60% ± 5%**  
-Reward is highest when win rate falls in this band.
-
-Example shaping:
-- reward += +1 if win
-- reward += +0.5 if win_rate in band (60 ±5)
-- penalty if too easy or too hard
-
----
-
-### 3.2 Secondary Objectives (Quality / Fun Constraints)
-
-These are equally important, otherwise RL can produce bad gameplay.
-
-#### A) Time-to-clear targets (pace)
-- Target Biome 1 clear time (average): **6–9 minutes**
-- Penalize runs that are too fast (< 4 min) or too slow (> 12 min)
-
-Why:
-- Too fast = trivial or low enemy density
-- Too slow = boring or too tanky
-
----
-
-#### B) Damage fairness (avoid unavoidable damage)
-Track:
-- average damage taken per room
-- spike damage events (big hits)
-- hits taken during telegraph grace window (should be near 0)
-
-Penalize:
-- high spike damage frequency
-- repeated hits within 1 sec (burst death)
-
----
-
-#### C) Encounter diversity (avoid monotony)
-Across runs:
-- penalize repeating same enemy pattern too often
-- encourage variety across combat rooms:
-  - (melee-only, mixed, ranged-supported)
-
----
-
-#### D) Space quality metrics (no “bad layouts”)
-Per room:
-- number of failed validations (regen count)
-- path length spawn→exit
-- safe area ratio
-- choke points count
-
-Penalize:
-- frequent regenerations
-- narrow choke points
-- low safe area
-
----
-
-#### E) Clumping metric (your big issue)
-Track:
-- time enemies are within 64 px of each other
-- number of separation pushes applied
-- overlap events (should be 0)
-
-Penalize:
-- high clumping time
-- repeated overlap collisions
-
----
-
-### 3.3 Final RL Reward Function (Suggested)
-
-Total reward per run:
-
-**R = W + B + P + F**
-
-Where:
-- **W (Win band reward)**:
-  - +1 for win
-  - -1 for loss
-  - additional band shaping based on overall win-rate target
-- **B (Balance reward)**:
-  - reward closeness to 60% target
-- **P (Pace reward)**:
-  - reward for clear time in 6–9 min band
-- **F (Fairness/Quality penalties)**:
-  - penalties for spike damage, clumping, regen failures, choke points
-
----
-
-## 4) Metrics To Log Per Run (Minimum Set)
-
-### Run-level
-- seed
-- room_order
-- win/loss
-- total_time
-- total_damage_taken
-- total_damage_dealt
-- deaths
-- final_hp
-- upgrades chosen (attack/defence/speed levels)
-
-### Room-level
-- room_type
-- hazards% (lava, slow)
-- anchor list used
-- enemy composition pattern ID
-- room clear time
-- damage taken in room
-- number of telegraph hits received (should be low)
-
-### Combat-level
-- hits taken during telegraph grace (should be ~0)
-- clumping metric
-- choke points count
-- regen attempts
-
----
-
-## 5) What We “Lock” Now (Biome 1 Completed)
-
-✅ Biome 1 room types + constraints  
-✅ Door rules  
-✅ Spawn anchors per room template  
-✅ Safe-zone exact tiles  
-✅ Telegraph timing (red tile flash rules)  
-✅ Enemy composition bounds per room type  
-✅ Engage ranges + attack ranges  
-✅ HP + damage values  
-✅ Hitboxes/projectiles  
-✅ Player movement + dash  
-✅ Stat scaling + upgrades  
-✅ Knockback + stagger rules  
-✅ RL metrics + reward shaping targets  
-
-Biome 1 is now fully specified end-to-end.
-
-## Biome 1 — Spawn Telegraph Visual + Timing (LOCKED SPEC)
-
-This telegraph is used for:
-- Ambush room spawns
-- Elite/boss summons (later biomes)
-- Optional reinforcements (not used in Biome 1 MVP except Ambush)
-
-**Determinism rule:** Given the same seed + same anchor list, telegraph timing and visuals must be identical.
-
----
-
-### 1) Telegraph Overlay Asset
-
-**Tile overlay size:** `32×32 px` (exactly 1 tile)  
-**Render layer:** above floor/hazards, below entities  
-**Blend:** alpha blend (no additive bloom in MVP)
-
-**Asset paths (recommended):**
-- `assets/effects/telegraph/telegraph_tile_32x32.png` (static base)
-- (optional) `assets/effects/telegraph/telegraph_tile_anim_32x32.png` (sprite sheet)
-
-If using a sprite sheet:
-- Frames: **6 frames**
-- Frame size: **32×32**
-- Layout: horizontal strip (192×32)
-
----
-
-### 2) Telegraph Color (LOCKED)
-
-Telegraph color is **pure red** with a slight warm tint:
-- Base color: `RGB(255, 40, 40)`
-- Edge highlight: `RGB(255, 120, 80)` (thin rim only)
-
-No orange telegraph in Biome 1 (reserved for boss/elite later biomes).
-
----
-
-### 3) Opacity + Pulse Animation (LOCKED)
-
-**Opacity:** pulsing between:
-- Min alpha: **0.35**
-- Max alpha: **0.70**
-
-**Pulse count:** **3 pulses** total  
-**Pulse frequency:** **6 Hz** (i.e., 6 cycles/sec)  
-**Animation function:**
-- `alpha(t) = lerp(0.35, 0.70, (sin(2π * 6 * t) + 1)/2)`
-
-(Any equivalent deterministic pulse is allowed.)
-
----
-
-### 4) Timing (LOCKED at 60 FPS)
-
-Game update assumed 60 FPS baseline.
-
-**Telegraph duration:** **0.50 sec**
-- Total frames: **30 frames**
-- Telegraph starts at frame `0`
-- Spawn happens at frame `30`
-
-**After spawn: "Idle Grace"**
-- Duration: **0.40 sec**
-- Total frames: **24 frames**
-- Enemy AI cannot attack or deal damage during this window
-
-So total reaction window:
-- **0.50 sec telegraph + 0.40 sec grace = 0.90 sec**
-
----
-
-### 5) Movement / Collision / Damage Rules (LOCKED)
-
-- Telegraph overlay **does NOT block movement**
-- Telegraph overlay **has no collision**
-- Telegraph overlay **does NOT deal damage**
-- Player standing on telegraph tile is allowed
-- Enemy spawns even if player is standing on it, BUT:
-  - Spawn must **fail-safe** to nearest valid tile within 1-tile radius if overlap would occur
-  - Log event: `spawn_overlap_resolved = true`
-
----
-
-### 6) Spawn Conditions + Validations (LOCKED)
-
-Before telegraph begins:
-- Anchor tile must be:
-  - Not a wall
-  - Not inside reserved safe zone
-  - Not within 2 tiles of a door
-  - Not within 4 tiles of player spawn zone (Biome 1 fairness)
-
-At spawn time (frame 30):
-- If tile is blocked by wall/invalid:
-  - Choose next valid anchor in deterministic order
-  - Telegraph transfers to that tile instantly (no re-timer)
-  - Log event: `telegraph_anchor_retargeted = true`
-
----
-
-### 7) Ambush Room Special (Biome 1)
-
-Ambush rooms always use telegraph.
-
-**Ambush timing:**
-- Telegraph: **0.80 sec** (48 frames)
-- Grace: **0.40 sec** (24 frames)
-
-Total: 1.20 sec reaction time (small room fairness).
-
----
-
-### 8) Logging (Required for RL later)
-
-For every telegraphed spawn:
-- room_id
-- room_type
-- seed
-- anchor_position (row,col)
-- telegraph_start_frame
-- spawn_frame
-- grace_end_frame
-- enemy_type
-- spawn_overlap_resolved (0/1)
-- telegraph_anchor_retargeted (0/1)
-
-# How To Use In Pygame
-
-If using sprite sheet:
-
-Frame width: 32
-
-Total frames: 6
-
-Animation speed: 30 frames total duration
-
-So change frame every 5 game frames (30 / 6)
-
-Example logic:
-
-frame_index = (current_frame // 5) % 6
-source_rect = pygame.Rect(frame_index * 32, 0, 32, 32)
-
-# BIOME 1 — Telegraph Timing Per Enemy Type (LOCKED) + Safe-Zone Tile Reservation (LOCKED)
-
-FPS reference: 60 FPS  
-Tile size: 32×32 px  
-Determinism: All timers are frame-based (or dt-accumulated but snapped to these exact durations).
-
-Telegraph assets (by danger level):
-- Standard spawn (red): `assets/effects/telegraph/telegraph_tile_anim_32x32.png`
-- Elite spawn (gold): `assets/effects/telegraph/telegraph_elite_gold_anim_32x32.png`
-- AoE ring (red): `assets/effects/telegraph/telegraph_aoe_ring_anim_256x256.png`
-- Boss AoE (purple): `assets/effects/telegraph/telegraph_boss_purple_anim_256x256.png`
-- Line strike (crack): `assets/effects/telegraph/telegraph_ground_crack_anim_256x64.png`
-
----
-
-## A) Telegraph Timing (Per Enemy Type)
-
-### A1) Standard Enemy Spawn (Combat reinforcements / optional)
-Used for:
-- Any non-ambush telegraphed spawn (future biomes)
-- Not typically used in Biome 1 combat rooms (Biome 1 combat = instant spawn)
-
-**Timing (LOCKED):**
-- Telegraph: **0.50 sec** = 30 frames
-- Idle grace after spawn: **0.40 sec** = 24 frames
-- Total reaction window: **0.90 sec**
-
-**Rules:**
-- No collision / no damage
-- If player overlaps anchor at spawn time → relocate to nearest valid tile within 1-tile radius
-
----
-
-### A2) Ambush Room Spawn (Biome 1 REQUIRED)
-Used for:
-- Ambush Room enemies only
-
-**Timing (LOCKED):**
-- Telegraph: **0.80 sec** = 48 frames
-- Idle grace: **0.40 sec** = 24 frames
-- Total: **1.20 sec**
-
-Asset:
-- red standard telegraph tile (32×32)
-
----
-
-### A3) Ranged Caster Projectile Cast Telegraph
-Used for:
-- Ranged casting wind-up (not spawn)
-
-**Timing (LOCKED):**
-- Cast wind-up telegraph: **0.30 sec** = 18 frames
-- Projectile fires at end of wind-up
-- No “idle grace” (casting itself is the telegraph)
-
-Visual:
-- small red pulse under caster feet OR a subtle glow above caster sprite (optional)
-(If no extra art, reuse standard telegraph tile at 50% alpha.)
-
----
-
-### A4) Brute Heavy Hit Telegraph (Melee)
-Used for:
-- Brute heavy wind-up (if Brute appears in Biome 1 optionally)
-
-**Timing (LOCKED):**
-- Wind-up telegraph: **0.45 sec** = 27 frames
-- Active: 0.12 sec (already locked)
-- Recovery: 0.55 sec
-
-Visual:
-- ground-crack line telegraph if it’s a forward strike
-- otherwise standard red pulse
-
----
-
-### A5) Brute Slam AoE Telegraph (if used)
-Used for:
-- AoE slam telegraph ring
-
-**Timing (LOCKED):**
-- AoE ring telegraph: **0.60 sec** = 36 frames
-- Damage triggers at end of telegraph (frame 36)
-- No follow-up grace (AOE telegraph is the warning)
-
-Asset:
-- red AoE ring (256×256)
-- Centered at slam origin
-- Render radius must match the actual AoE radius (70 px in Biome 1 elite slam; for brute slam choose and match)
-
----
-
-### A6) Elite Guardian Attacks Telegraph
-**Elite Heavy Swing**
-- Wind-up: **0.45 sec** (same as spec)
-- Visual: elite gold pulse under elite (32×32) at 60% alpha
-
-**Elite Ground Slam**
-- AoE ring telegraph: **0.60 sec** = 36 frames
-- Visual: red AoE ring (or gold AoE ring later)
-
----
-
-### A7) Mini Boss Attacks Telegraph (Biome 1 Guardian)
-
-**Double Swipe**
-- Wind-up: **0.40 sec** = 24 frames
-- Visual: gold pulse (boss “threat” but not purple ultimate)
-
-**Dash Strike**
-- Telegraph line (crack): **0.55 sec** = 33 frames
-- Damage applies at dash impact (end), not during dash
-- Visual: ground-crack line telegraph aligned to dash direction
-
-**Shockwave**
-- AoE ring telegraph: **0.70 sec** = 42 frames
-- Visual: boss purple AoE ring for dramatic clarity
-
----
-
-### A8) Universal Telegraph Hard Rules
-- Telegraph never blocks movement
-- Telegraph never causes damage
-- Enemies cannot deal damage during “idle grace” after spawn
-- Telegraph duration is NEVER randomized in Biome 1
-- If anchor invalid → deterministic retarget to next anchor (log it)
-
----
-
-## B) Safe-Zone Tile Reservation System (Exact Tiles, LOCKED)
-
-Safe-zones are **reserved tiles** where:
-- No hazards (lava/slow)
-- No walls
-- No spawn anchors
-- No telegraph spawns
-- Must remain reachable from player spawn
-
-Coordinate system:
-- (row, col), origin (0,0) top-left
-
----
-
-### B1) Combat Room (12×12)
-Player spawn: (9,5)(9,6)  
-Doors: top (0,5)(0,6), bottom (11,5)(11,6)
-
-**Reserved Safe Zone (3×3):**
-- Rows **8–10**
-- Cols **4–6**
-
-Explicit tiles:
-(8,4)(8,5)(8,6)
-(9,4)(9,5)(9,6)
-(10,4)(10,5)(10,6)
-
-Additionally reserved:
-- Door buffer (no hazards, no spawn):
-  - All door tiles + 1-tile ring around them
-
----
-
-### B2) Ambush Room (8×8)
-Player spawn: (6,3)(6,4)  
-Doors: top (0,3)(0,4), bottom (7,3)(7,4)
-
-**Reserved Safe Zone (3×3):**
-- Rows **3–5**
-- Cols **2–4**
-
-Explicit tiles:
-(3,2)(3,3)(3,4)
-(4,2)(4,3)(4,4)
-(5,2)(5,3)(5,4)
-
-Rule:
-- No ambush anchors or telegraphs can occur inside this safe zone.
-
----
-
-### B3) Safe Room (12×12)
-Player spawn: (9,5)(9,6)  
-Fountain: (5,5)(5,6)  
-Upgrades: (4,4)(4,7)(6,4)(6,7)
-
-**Reserved Safe Zone (5×5):**
-- Rows **4–8**
-- Cols **4–8**
-
-Explicit tiles:
-Rows 4..8 × Cols 4..8 (25 tiles)
-
-No hazards in safe room (lava = 0% hard rule).
-Slow tiles allowed only outside the 5×5 reserved zone (Biome 1: 0–5%).
-
----
-
-### B4) Elite Room (16×16)
-Player spawn: (13,7)(13,8)
-
-**Reserved Spawn Safety Zone (4×4):**
-- Rows **12–15**
-- Cols **6–9**
-
-Explicit tiles:
-Rows 12..15 × Cols 6..9 (16 tiles)
-
-Additionally reserved:
-- Center readability zone (recommended “soft rule”):
-  - Keep rows 6..9, cols 6..9 free of lava (walls ok at edges)
-
----
-
-### B5) Mini Boss Room (16×16)
-Player spawn: (13,7)(13,8)  
-Boss spawn zone: rows 7..8, cols 7..8 (2×2)
-
-**Reserved Spawn Safety Zone (4×4):**
-- Rows **12–15**
-- Cols **6–9**
-
-Boss spawn zone is also reserved:
-- No hazards inside boss 2×2 spawn zone
-- No walls inside boss spawn zone
-
-Additionally reserved:
-- No telegraph spawns within 2 tiles of player safe zone
-
----
-
-## C) Validation Checks (Must Pass)
-
-For each room:
-1. Safe-zone tiles are floor-only
-2. Spawn tile is floor-only
-3. Door tiles are floor-only
-4. Path exists spawn → exit (or spawn → boss zone for mini boss)
-5. No anchors exist inside safe zones
-6. Hazard placement respects all reserved tiles
-
-If any check fails:
-- regenerate deterministically (seed + attempt index)
-- log `room_regen_attempt += 1`
-
-# BIOME 1 — Lock Attack Radius ↔ Telegraph Radius Mapping (LOCKED)
-
-Goal:
-- Telegraph visuals must match the *real* damage area.
-- Player trust: if they stand outside the ring/line, they should not get hit.
-- Deterministic rendering: same radius every time.
-
-Units:
-- Tiles are 32×32 px
-- All radii below are in **pixels**, with tile equivalents.
-
----
-
-## 1) General Mapping Rules (Hard)
-
-### 1.1 Exact Match Rule
-For any AoE or line attack:
-- **Telegraph size == Damage size**
-- No hidden padding beyond **+2 px** (only for rounding)
-
-### 1.2 Hit Resolution Timing
-- Damage is applied **exactly at telegraph end frame**
-- Telegraph stays visible until the damage frame, then disappears.
-
-### 1.3 Render Center / Direction
-- Rings are centered at the attack origin (enemy center or impact point).
-- Lines are aligned to the attack direction vector at telegraph start.
-- If enemy rotates during telegraph, the telegraph direction does **not** change (locks direction).
-
----
-
-## 2) AoE Ring Mapping (Circle Attacks)
-
-### 2.1 Brute Slam (if used in Biome 1)
-Damage AoE radius:
-- **64 px** (2 tiles)
-
-Telegraph asset:
-- `telegraph_aoe_ring_anim_256x256.png`
-
-Render scale rule:
-- The 256×256 art is a *canvas*.  
-- You draw the ring so the visible ring radius represents **64 px**.
-
-Implementation convention (LOCKED):
-- Treat the ring graphic as having a reference radius of **120 px** (visual outer ring).
-- So scale factor:
-  - `scale = damage_radius_px / 120`
-
-For Brute Slam:
-- scale = 64 / 120 = **0.5333×**
-
----
-
-### 2.2 Elite Ground Slam (Biome 1 Elite)
-Damage AoE radius:
-- **70 px** (≈ 2.2 tiles)
-
-Telegraph asset:
-- `telegraph_elite_gold_aoe_anim_256x256.png` (preferred)
-  - fallback: red AoE ring
-
-Scale:
-- scale = 70 / 120 = **0.5833×**
-
-Damage application:
-- single hit at telegraph end
-
----
-
-### 2.3 Mini Boss Shockwave (Biome 1 Guardian)
-Damage AoE radius:
-- **128 px** (4 tiles)
-
-Telegraph asset:
-- `telegraph_boss_purple_anim_256x256.png`
-
-Scale:
-- scale = 128 / 120 = **1.0667×**
-
-Rule:
-- Shockwave does NOT hit outside the purple ring.
-
----
-
-## 3) Line Telegraph Mapping (Dash / Charge Strikes)
-
-Line telegraphs are rectangles (capsule-like), rendered using the 256×64 asset.
-
-### 3.1 Boss Dash Strike (Mini Boss / Final Boss)
-Telegraph asset:
-- `telegraph_boss_purple_line_anim_256x64.png`
-
-Damage shape (capsule rectangle):
-- Length: **128 px** (4 tiles)
-- Width: **40 px** (approx player width + fairness)
-
-Mapping rule:
-- The line graphic is a canvas of 256 px long.
-- Reference length = **224 px** usable area (since margins exist).
-- scale length so that usable area equals damage length.
-
-ScaleX:
-- scale_x = damage_length / 224
-
-For 128 px dash length:
-- scale_x = 128 / 224 = **0.5714×**
-
-Width scaling:
-- Reference width = **20 px** half-width in art
-- scale_y = (damage_width/2) / 20 = 20 / 20 = **1.0×**
-
-Damage timing:
-- Damage occurs only at dash impact (end).
-- During dash movement: no damage (Biome 1 fairness rule).
-
----
-
-### 3.2 Flanker Dash Strike (if used)
-Telegraph asset:
-- `telegraph_ground_crack_anim_256x64.png`
-
-Damage capsule:
-- Length: **96 px** (3 tiles)
-- Width: **32 px** (1 tile)
-
-ScaleX:
-- 96 / 224 = **0.4286×**
-ScaleY:
-- (32/2)/20 = 16/20 = **0.8×**
-
----
-
-## 4) Melee Swings (Non-AoE, Non-Line)
-
-Melee swings use *wind-up telegraph* (enemy animation / glow) but do not require rings/lines.
-
-### 4.1 Melee Grunt Swing
-Damage hit circle radius:
-- **20 px**
-No ring telegraph.
-Telegraph is only:
-- wind-up animation 0.25 sec
-
-### 4.2 Flanker Strike
-Damage hit circle radius:
-- **16 px**
-No ring telegraph.
-
-### 4.3 Elite Heavy Swing
-Damage circle radius:
-- **28 px**
-Telegraph:
-- gold pulse under feet during 0.45 sec wind-up
-No AoE ring.
-
----
-
-## 5) Validation Rules (Must Pass)
-
-### 5.1 Debug overlay check (dev-only)
-When debug is ON:
-- Draw the damage circle/rectangle outline in white
-- Ensure it matches the telegraph ring/line
-
-### 5.2 Unit tests (determinism)
-For each attack:
-- run with fixed seed
-- confirm telegraph scaling equals expected scale factor
-- confirm damage only applies within mapped area
-
----
-
-## 6) Quick Reference Table
-
-| Attack | Damage Shape | Damage Size | Telegraph Asset |
-|---|---|---|---|
-| Brute Slam | Circle | r=64 px | red AoE ring |
-| Elite Slam | Circle | r=70 px | gold AoE ring |
-| Boss Shockwave | Circle | r=128 px | purple AoE ring |
-| Boss Dash | Capsule | L=128 px, W=40 px | purple line |
-| Flanker Dash | Capsule | L=96 px, W=32 px | red crack line |
-| Grunt Swing | Circle | r=20 px | no ring (anim only) |
-| Flanker Strike | Circle | r=16 px | no ring (anim only) |
-| Elite Swing | Circle | r=28 px | gold pulse tile |
-
-# BIOME 1 — Safe-Zone Reservation System (Mathematically LOCKED)
-
-Tile size: 32×32 px  
-Coordinate system: (row, col), origin (0,0) top-left.  
-Room grids are indexed 0..(H-1), 0..(W-1).
-
-**Reserved tiles mean:**
-- No hazards (lava/slow)
-- No walls
-- No enemy spawn anchors
-- No telegraph spawns
-- No pickups (unless explicitly allowed in Safe Room)
-- Must remain reachable from player spawn
-
----
-
-## 0) Global Reserved Rules (Apply to ALL Rooms)
-
-### 0.1 Door Buffer (all rooms)
-For every door tile `D`, reserve:
-- the door tile itself
-- plus 1-tile ring around it (Manhattan distance ≤ 1)
-
-This prevents door camping, unfair hazard placement, and spawn clipping.
-
-### 0.2 Player Spawn Buffer (all rooms)
-Reserve:
-- the player spawn tiles (2 tiles)
-- plus 1-tile ring around the spawn center
-
-(Combat/Ambush/Elite/MiniBoss also have larger safe zones defined below.)
-
----
-
-## 1) Combat Room (12×12) — Safe Zones
-
-### 1.1 Door positions (2-wide)
-- Top door tiles: (0,5), (0,6)
-- Bottom door tiles: (11,5), (11,6)
-
-### 1.2 Player spawn (2-wide)
-- Player spawn tiles: (9,5), (9,6)
-
-### 1.3 Safe Zone A — Spawn Safety Zone (3×3) ✅
-Rows 8..10, Cols 4..6 (3×3)
-
-Explicit tiles:
-- (8,4)(8,5)(8,6)
-- (9,4)(9,5)(9,6)
-- (10,4)(10,5)(10,6)
-
-### 1.4 Reserved Exit Landing Zone ✅
-Reserve a small landing zone just inside each door so the player never enters directly into hazards/enemies.
-
-Top exit landing zone (2×2):
-- (1,5)(1,6)
-- (2,5)(2,6)
-
-Bottom exit landing zone (2×2):
-- (9,5)(9,6)  (already reserved by spawn)
-- (10,5)(10,6) (already inside 3×3 zone)
-
-### 1.5 Neutral Zone — Center Clarity (2×2) ✅
-Purpose: keep the middle readable (avoid clutter + allow dodging).
-
-Reserve center 2×2:
-- (5,5)(5,6)
-- (6,5)(6,6)
-
-Rule:
-- No hazards/walls/spawns here in Biome 1 combat rooms.
-
----
-
-## 2) Ambush Room (8×8) — Safe Zones
-
-### 2.1 Door positions
-- Top door tiles: (0,3), (0,4)
-- Bottom door tiles: (7,3), (7,4)
-
-### 2.2 Player spawn (2-wide)
-- Player spawn tiles: (6,3), (6,4)
-
-### 2.3 Safe Zone A — Central Safety Zone (3×3) ✅
-Rows 3..5, Cols 2..4 (3×3)
-
-Explicit tiles:
-- (3,2)(3,3)(3,4)
-- (4,2)(4,3)(4,4)
-- (5,2)(5,3)(5,4)
-
-Rule:
-- Ambush anchors cannot be inside this zone.
-- Ambush telegraphs cannot occur inside this zone.
-
-### 2.4 Exit Landing Zone ✅
-Top landing (2×2):
-- (1,3)(1,4)
-- (2,3)(2,4)
-
-Bottom landing (2×2):
-- (5,3)(5,4)
-- (6,3)(6,4) (spawn tiles already reserved)
-
----
-
-## 3) Safe Room (12×12) — Safe Zones
-
-Safe room is non-combat; its safe zone is larger and also reserves interactable placement.
-
-### 3.1 Door positions
-- Top door tiles: (0,5), (0,6)
-- Bottom door tiles: (11,5), (11,6)
-
-### 3.2 Player spawn (2-wide)
-- Player spawn tiles: (9,5), (9,6)
-
-### 3.3 Main Safe Zone — 5×5 Interaction Area ✅
-Rows 4..8, Cols 4..8 (5×5)
-
-Explicit tiles:
-Rows 4..8 × Cols 4..8 (25 tiles)
-
-### 3.4 Reserved Interactable Tiles ✅
-Inside the 5×5 safe zone, reserve these for interactables (no hazards/walls):
-
-- Fountain (2 tiles): (5,5), (5,6)
-- Upgrade pedestals (4 tiles):
-  - (4,4), (4,7), (6,4), (6,7)
-
-Rule:
-- Pickups may appear only in this 5×5 region (Biome 1 MVP).
-- No lava in safe room (lava = 0% hard rule).
-- Slow tiles allowed only outside the 5×5 region (0–5% optional).
-
----
-
-## 4) Elite Room (16×16) — Safe Zones
-
-### 4.1 Doors
-- Top door tiles: (0,7), (0,8)
-- Bottom door tiles: (15,7), (15,8)
-
-### 4.2 Player spawn (2-wide)
-- Player spawn tiles: (13,7), (13,8)
-
-### 4.3 Safe Zone A — Spawn Safety Zone (4×4) ✅
-Rows 12..15, Cols 6..9 (4×4)
-
-Explicit tiles:
-Rows 12..15 × Cols 6..9 (16 tiles)
-
-### 4.4 Neutral Zone — Center Clarity (3×3) ✅
-Reserve a 3×3 in the middle to ensure elite fights are readable.
-
-Center 3×3:
-Rows 7..9, Cols 7..9
-
-Explicit tiles:
-(7,7)(7,8)(7,9)
-(8,7)(8,8)(8,9)
-(9,7)(9,8)(9,9)
-
-Rule:
-- No lava/walls/spawns in this zone in Biome 1.
-- (Slow tiles also not allowed here.)
-
----
-
-## 5) Mini Boss Room (16×16) — Safe Zones
-
-### 5.1 Doors
-- Top door tiles: (0,7), (0,8)
-- Bottom door tiles: (15,7), (15,8)
-
-### 5.2 Player spawn
-- Player spawn tiles: (13,7), (13,8)
-
-### 5.3 Boss spawn zone ✅
-Boss spawns in a reserved 2×2 center block:
-Rows 7..8, Cols 7..8
-
-Explicit tiles:
-- (7,7)(7,8)
-- (8,7)(8,8)
-
-Rule:
-- No hazards/walls/spawns inside boss spawn zone.
-
-### 5.4 Safe Zone A — Player Safety Zone (4×4) ✅
-Rows 12..15, Cols 6..9 (4×4)
-
-Explicit tiles:
-Rows 12..15 × Cols 6..9 (16 tiles)
-
-### 5.5 Neutral Zone — Arena Clarity (5×5) ✅
-To prevent unfair choke layouts, reserve an arena clarity square:
-
-Rows 6..10, Cols 6..10 (5×5)
-
-Rule:
-- No walls inside this 5×5 in Biome 1 boss room.
-- Hazards inside this 5×5 are NOT allowed in Biome 1 MVP.
-
-(You can allow hazards in later biomes.)
-
----
-
-## 6) Validation Checks (Must Pass)
-
-Before room is accepted:
-1. Reserved tiles contain floor only (no walls, no hazards).
-2. No anchors lie inside reserved zones.
-3. Path exists: spawn → exit (or spawn → boss zone).
-4. Door buffer is clean.
-5. If check fails → regenerate deterministically.
-
-Log:
-- `room_regen_attempt`
-- `failed_rule_id` (e.g., SAFEZONE_BLOCKED, DOOR_BUFFER_VIOLATION)
-
----
-
-## 7) Quick Summary Table
-
-| Room Type | Size | Primary Safe Zone | Neutral Zone |
-|---|---:|---|---|
-| Combat | 12×12 | 3×3 at rows 8..10 cols 4..6 | center 2×2 at (5..6,5..6) |
-| Ambush | 8×8 | 3×3 at rows 3..5 cols 2..4 | (none extra) |
-| Safe | 12×12 | 5×5 at rows 4..8 cols 4..8 | interactables reserved |
-| Elite | 16×16 | 4×4 at rows 12..15 cols 6..9 | center 3×3 at rows 7..9 cols 7..9 |
-| Mini Boss | 16×16 | 4×4 at rows 12..15 cols 6..9 | arena 5×5 at rows 6..10 cols 6..10 + boss 2×2 |
-
-## Biome 1 — Room Validation + Seeded Regeneration (Implementation Pseudocode)
-
-This is the exact validation pipeline used after a room layout is generated
-(walls + hazards + doors + anchors). If any check fails, the room regenerates
-deterministically using the same seed + attempt index.
-
----
-
-### 1) Deterministic RNG Setup (Per Room)
-
-Each room uses a derived seed so that:
-- Changing Room 3 does not change Room 4
-- Regeneration attempts are deterministic
-
-**Derived seed:**
-- `room_seed = hash(run_seed, biome_id, room_index, room_type)`
-- `attempt_seed = hash(room_seed, regen_attempt)`
-
-Rule:
-- All random calls inside that attempt use `attempt_seed`.
-
----
-
-### 2) Reserved Tile Generation
-
-Before validating, compute `reserved_tiles` as a set of (row,col).
-
-Reserved tiles include:
-- Door buffer tiles (door tiles + 1-tile ring)
-- Player spawn tiles
-- Room-type safe zone tiles (3×3 / 4×4 / 5×5 as locked)
-- Neutral zones (combat center 2×2, elite center 3×3, boss arena 5×5)
-- Boss spawn zone tiles (mini boss room only)
-
----
-
-### 3) Validation Checks (Must Pass)
-
-Checks are run in this exact order:
-
-#### Rule V1 — Bounds
-- All walls/hazards/doors/anchors must be within grid bounds.
-- If fail: `FAIL_BOUNDS`
-
-#### Rule V2 — Reserved Tiles are Floor-only
-For each tile in `reserved_tiles`:
-- Must be `FLOOR`
-- Must NOT be `WALL`
-- Must NOT be `LAVA`
-- Must NOT be `SLOW`
-
-If fail: `FAIL_RESERVED_BLOCKED`
-
-#### Rule V3 — Door Buffer Clean
-For each door tile and its 1-ring buffer:
-- Must be floor-only
-- Must not contain hazard or wall
-- Must not contain anchor
-
-If fail: `FAIL_DOOR_BUFFER`
-
-#### Rule V4 — Anchor Validity
-For each anchor in `spawn_anchors`:
-- Must be floor tile
-- Must not be in `reserved_tiles`
-- Must not be in door buffer
-- Must not overlap another anchor
-
-If fail: `FAIL_ANCHOR_INVALID`
-
-#### Rule V5 — Minimum Anchor Count
-- Room must have ≥ `ANCHOR_MIN` anchors
-- Biome 1 targets:
-  - Combat (12×12): 10 anchors
-  - Ambush (8×8): 8 anchors
-  - Elite (16×16): 12 anchors
-  - Mini Boss (16×16): 12 anchors
-  - Safe: 0 anchors required
-
-If fail: `FAIL_ANCHOR_COUNT`
-
-#### Rule V6 — Path Connectivity (Spawn → Exit)
-Run BFS/DFS on walkable tiles (floor + slow, but not walls/lava):
-- Must reach at least one exit door landing zone.
-- Mini Boss room: must reach boss zone and exit door.
-
-If fail: `FAIL_PATH_BLOCKED`
-
-#### Rule V7 — Safe Zone Reachability
-- At least 80% of safe zone tiles must be reachable from spawn.
-- This prevents “safe zone sealed by walls” edge cases.
-
-If fail: `FAIL_SAFEZONE_UNREACHABLE`
-
-#### Rule V8 — Hazard Caps (Biome 1)
-Validate hazard percentages against room-type caps:
-- Safe room: lava 0% (hard), slow 0–5% outside safe zone only
-- Combat: lava 0–10%, slow 5–15%
-- Ambush: lava 0–5%, slow 0–10%
-- Elite: lava 0–8%, slow 5–15%
-- Mini Boss: lava 0% in arena 5×5, slow 0–5% outside arena only
-
-If fail: `FAIL_HAZARD_CAP`
-
----
-
-### 4) Seeded Regeneration Loop
-
-
-function generate_room_layout(run_seed, biome_id, room_index, room_type):
-room_seed = hash(run_seed, biome_id, room_index, room_type)
-
-for regen_attempt in range(0, MAX_REGEN_ATTEMPTS):
-    rng = RNG(hash(room_seed, regen_attempt))
-
-    layout = build_layout_with_rng(rng, room_type)
-    reserved = compute_reserved_tiles(room_type)
-
-    result = validate(layout, reserved, room_type)
-
-    if result.ok:
-        layout.meta.regen_attempt = regen_attempt
-        return layout
-
-    log_validation_failure(
-        biome_id=biome_id,
-        room_index=room_index,
-        room_type=room_type,
-        regen_attempt=regen_attempt,
-        failed_rule_id=result.failed_rule_id
-    )
-
-# If repeated failures occur:
-# fallback to a known-safe template layout for that room type
-return load_fallback_template(room_type)
-
-Recommended:
-- `MAX_REGEN_ATTEMPTS = 12`
-- If it still fails: fallback template ensures run never crashes.
-
----
-
-### 5) Logging Fields (Required)
-
-For each room:
-- run_seed, room_seed
-- biome_id, room_index, room_type
-- regen_attempt_used
-- failed_rule_id counts (aggregate)
-- hazard_percent_lava, hazard_percent_slow
-- anchor_count
-- path_length_spawn_to_exit
-- reserved_tile_count
-
-This logging is RL-critical and also helps debugging.
-
----
-
-### 6) Notes for Cursor / Implementation
-
-- Keep `reserved_tiles` as a `set` for O(1) membership checks.
-- Use deterministic ordering:
-  - sort anchors and doors before validation logs
-- BFS should treat:
-  - floor + slow = walkable
-  - wall + lava = blocked
-- Validation must run BEFORE spawns/hazards are finalized for runtime.
-
-# BIOME 1 — Template Spawn Anchor Coordinate Sets (LOCKED)
-
-Tile size: 32×32 px  
-Coordinate system: (row, col), origin (0,0) top-left.  
-Anchor tiles are valid **only if** they are floor and not inside reserved zones.
-
-Rules (apply to all room types):
-- Anchors must NOT be in any reserved safe zone or door buffer
-- Min enemy–enemy spawn distance: ≥ 2 tiles (64 px)
-- Min enemy–player spawn distance: ≥ 4 tiles (128 px)
-- If an anchor becomes invalid due to walls/hazards, it is skipped (deterministic)
-
----
-
-## 1) Combat Room Anchors (12×12) — 10 anchors
-
-Room: rows 0..11, cols 0..11  
-Doors: top (0,5)(0,6), bottom (11,5)(11,6)  
-Reserved: spawn safe zone rows 8..10 cols 4..6, center 2×2 rows 5..6 cols 5..6, door buffers.
-
-**Anchor Set (LOCKED):**
-- A1 (2,2)
-- A2 (2,4)
-- A3 (2,7)
-- A4 (2,9)
-- A5 (4,2)
-- A6 (4,9)
-- A7 (7,2)
-- A8 (7,9)
-- A9 (9,2)
-- A10 (9,9)
+## 15) Biome 1 — Room Clear Rule (Hard-Locked)
+
+A room is cleared when:
+- Active enemies = 0
+- Pending telegraph spawns = 0
+- Pending reinforcement waves = 0
+- No future spawn timers remain
+
+Then unlock doors after:
+- **0.50 sec delay** (30 frames at 60 FPS)
 
 Notes:
-- Anchors avoid center and spawn safe zone.
-- Anchors provide left/right symmetry and enough spacing.
+- Summoned enemies count as active enemies until killed.
+- Telegraph overlays do **not** count as enemies (they count as pending spawns).
+- If a new enemy appears during unlock delay, cancel unlock and re-lock.
+
 
 ---
 
-## 2) Ambush Room Anchors (8×8) — 8 anchors
+## 16) AI Director — Flexible Slot Rule (Hard-Locked for Biome 1)
 
-Room: rows 0..7, cols 0..7  
-Doors: top (0,3)(0,4), bottom (7,3)(7,4)  
-Reserved: safe zone rows 3..5 cols 2..4, door buffers.
+- Seed may mark **0 or 1** flexible slot per Biome 1 run.
+- **Max flexible slots per run: 1**
+- Eligible indices: **Room 3, 4, or 5**
+- Director can choose: **Combat vs Ambush** only for that slot.
 
-**Anchor Set (LOCKED):**
-- A1 (1,1)
-- A2 (1,3)
-- A3 (1,6)
-- A4 (3,6)
-- A5 (6,1)
-- A6 (6,6)
-- A7 (4,1)
-- A8 (3,0)  *(edge anchor; only if floor and not wall)*
-
-If A8 is invalid often, replace A8 with:
-- A8_alt (2,5)
-
-Ambush telegraphs use these anchors only.
-
----
-
-## 3) Safe Room Anchors (12×12)
-Safe room is non-combat.
-
-**Anchor Set:**
-- None required (anchors = 0)
-
-(Interactables have their own reserved positions.)
-
----
-
-## 4) Elite Room Anchors (16×16) — 12 anchors
-
-Room: rows 0..15, cols 0..15  
-Doors: top (0,7)(0,8), bottom (15,7)(15,8)  
-Reserved:
-- Player safe zone rows 12..15 cols 6..9
-- Center clarity zone rows 7..9 cols 7..9
-- Door buffers
-
-**Anchor Set (LOCKED):**
-- A1 (2,2)
-- A2 (2,6)
-- A3 (2,9)
-- A4 (2,13)
-- A5 (5,3)
-- A6 (5,12)
-- A7 (10,3)
-- A8 (10,12)
-- A9 (12,2)
-- A10 (12,13)
-- A11 (8,2)
-- A12 (8,13)
-
-Notes:
-- Anchors avoid center 3×3 clarity zone.
-- Anchors avoid player safe zone near bottom.
-- Anchors include mid-left/right for reinforcement-style spacing.
-
----
-
-## 5) Mini Boss Room Anchors (16×16) — 12 anchors
-
-Room: rows 0..15, cols 0..15  
-Reserved:
-- Player safe zone rows 12..15 cols 6..9
-- Boss spawn zone rows 7..8 cols 7..8
-- Arena clarity zone rows 6..10 cols 6..10 (no walls/hazards)
-- Door buffers
-
-Mini boss room anchors are for:
-- (Future) phase add spawns
-- (Future) hazard spawns
-In Biome 1 MVP: boss has no adds, but anchors are still defined for completeness.
-
-**Anchor Set (LOCKED):**
-- A1 (2,3)
-- A2 (2,7)
-- A3 (2,11)
-- A4 (4,2)
-- A5 (4,13)
-- A6 (8,1)
-- A7 (8,14)
-- A8 (11,2)
-- A9 (11,13)
-- A10 (13,3)
-- A11 (13,11)
-- A12 (1,8)
-
-Notes:
-- Anchors are outside boss arena clarity zone.
-- Anchors are away from player safe zone.
-
----
-
-## 6) Deterministic Anchor Selection (Per Room)
-
-When spawning N enemies:
-1. Build `valid_anchors = [anchors not blocked AND not reserved]`
-2. Sort anchors by fixed order A1..Ak
-3. Choose anchors using seeded shuffle:
-   - `rng.shuffle(valid_anchors)`
-4. Pick first N anchors
-5. Validate min-distance between chosen anchors:
-   - if violation, skip anchor and pick next (deterministic)
-
-Log:
-- anchors_selected (list of (row,col))
-- anchors_skipped_due_to_invalid
-- anchors_skipped_due_to_distance
-
----
-
-## 7) Quick Counts (Biome 1 Defaults)
-
-| Room Type | Anchor Count | Typical Spawn Count |
-|---|---:|---:|
-| Combat 12×12 | 10 | 3–5 |
-| Ambush 8×8 | 8 | 3–4 |
-| Elite 16×16 | 12 | 3–4 |
-| MiniBoss 16×16 | 12 | 0 (Biome 1 MVP) |
-
-# BIOME 1 — ASCII Room Templates (LOCKED Layout Reference)
-
-Legend:
-- `#` = wall boundary (outer border)
-- `.` = floor (walkable)
-- `D` = door tile (2-wide)
-- `S` = player spawn tiles (2 tiles)
-- `R` = reserved safe-zone / reserved tiles (no hazards, no spawns)
-- `N` = neutral clarity zone (reserved; no hazards/spawns)
-- `B` = boss spawn zone (2×2)
-- `A` = spawn anchor point (valid spawn candidate)
-
-Coordinate note:
-- These ASCII diagrams are conceptual references that match the locked coordinates.
-- The generator may add interior walls/hazards elsewhere, but it must NOT change:
-  - doors
-  - reserved zones
-  - spawn zone
-  - neutral zones
-  - anchor coordinates
-
----
-
-## 1) Ambush Room (8×8)
-
-Doors:
-- Top: (0,3)(0,4)
-- Bottom: (7,3)(7,4)
-
-Spawn:
-- (6,3)(6,4)
-
-Reserved Safe Zone (3×3):
-- rows 3..5, cols 2..4
-
-Anchors (8):
-(1,1) (1,3) (1,6) (3,6) (6,1) (6,6) (4,1) (3,0)*
-
-
-row\col 0 1 2 3 4 5 6 7
-0 # # # D D # # #
-1 # A . A . . A #
-2 # . . . . . . #
-3 A . R R R . A #
-4 # A R R R . . #
-5 # . R R R . . #
-6 # A . . S S A #
-7 # # # D D # # #
-
-
-Notes:
-- `A` at (3,0) is the left-edge anchor and is allowed only if it’s floor.
-- No ambush telegraph may occur on any `R` tile.
-
----
-
-## 2) Safe Room (12×12)
-
-Doors:
-- Top: (0,5)(0,6)
-- Bottom: (11,5)(11,6)
-
-Spawn:
-- (9,5)(9,6)
-
-Reserved Interaction Zone (5×5):
-- rows 4..8, cols 4..8
-
-Fountain (2 tiles):
-- (5,5)(5,6) inside reserved zone
-
-Pedestals (4 tiles):
-- (4,4) (4,7) (6,4) (6,7)
-
-No anchors in safe room.
-
-
-row\col 0 1 2 3 4 5 6 7 8 9 10 11
-0 # # # # # D D # # # # #
-1 # . . . . . . . . . . #
-2 # . . . . . . . . . . #
-3 # . . . . . . . . . . #
-4 # . . . R R R R R . . #
-5 # . . . R R R R R . . #
-6 # . . . R R R R R . . #
-7 # . . . R R R R R . . #
-8 # . . . R R R R R . . #
-9 # . . . . S S . . . . #
-10 # . . . . . . . . . . #
-11 # # # # # D D # # # # #
-
-
-Notes:
-- Fountain + pedestals are placed inside the `R` region.
-- No lava anywhere in safe room (Biome 1 hard rule).
-
----
-
-## 3) Elite Room (16×16)
-
-Doors:
-- Top: (0,7)(0,8)
-- Bottom: (15,7)(15,8)
-
-Spawn:
-- (13,7)(13,8)
-
-Reserved Spawn Safe Zone (4×4):
-- rows 12..15, cols 6..9
-
-Neutral Center Clarity Zone (3×3):
-- rows 7..9, cols 7..9
-
-Anchors (12):
-(2,2)(2,6)(2,9)(2,13)(5,3)(5,12)(10,3)(10,12)(12,2)(12,13)(8,2)(8,13)
-
-
-row 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
-0 # # # # # # # D D # # # # # # #
-1 # . . . . . . . . . . . . . . #
-2 # . A . . . A . A . . . . A . #
-3 # . . . . . . . . . . . . . . #
-4 # . . . . . . . . . . . . . . #
-5 # . . A . . . . . . . . A . . #
-6 # . . . . . . . . . . . . . . #
-7 # . . . . . . N N N . . . . . #
-8 # . A . . . . N N N . . . A . #
-9 # . . . . . . N N N . . . . . #
-10 # . . A . . . . . . . . A . . #
-11 # . . . . . . . . . . . . . . #
-12 # . A . . . R R R R . . . A . #
-13 # . . . . . R R S S . . . . . #
-14 # . . . . . R R R R . . . . . #
-15 # # # # # # # D D # # # # # # #
-
-
-Notes:
-- `R` zone protects spawn entry.
-- `N` zone ensures the center stays readable (no hazards, no walls, no spawns).
-- Elite enemy itself can spawn anywhere outside reserved zones, but supports use anchors.
-
----
-
-## 4) Mini Boss Room (16×16)
-
-Doors:
-- Top: (0,7)(0,8)
-- Bottom: (15,7)(15,8)
-
-Player spawn:
-- (13,7)(13,8)
-
-Boss spawn zone (2×2):
-- rows 7..8, cols 7..8
-
-Reserved Player Safe Zone (4×4):
-- rows 12..15, cols 6..9
-
-Arena Clarity Zone (5×5):
-- rows 6..10, cols 6..10 (no walls/hazards in Biome 1)
-
-Anchors (12):
-(2,3)(2,7)(2,11)(4,2)(4,13)(8,1)(8,14)(11,2)(11,13)(13,3)(13,11)(1,8)
-
-
-row 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
-0 # # # # # # # D D # # # # # # #
-1 # . . . . . . . A . . . . . . #
-2 # . . A . . . A . . . A . . . #
-3 # . . . . . . . . . . . . . . #
-4 # . A . . . . . . . . . . A . #
-5 # . . . . . . . . . . . . . . #
-6 # . . . . . . N N N N N . . . #
-7 # . . . . . . N B B N N . . . #
-8 # A . . . . . N B B N N . . A #
-9 # . . . . . . N N N N N . . . #
-10 # . . . . . . N N N N N . . . #
-11 # . A . . . . . . . . . . A . #
-12 # . . . . . R R R R . . . . . #
-13 # . . . A . R R S S . . A . . #
-14 # . . . . . R R R R . . . . . #
-15 # # # # # # # D D # # # # # # #
-
-
-Notes:
-- `B` is the boss 2×2 spawn zone.
-- `N` (arena clarity 5×5) must stay free of walls/hazards in Biome 1 MVP.
-- Anchors exist for future adds (not used in Biome 1 MVP).
-
----
-
-If you want next:
-- I can generate the **Combat Room (12×12) ASCII template** too (with its center 2×2 neutral zone and the 10 anchors),
-so your Requirements Analysis has all room types visually locked.
-
-# BIOME 1 — Enemy Composition Rules (HARD-LOCKED, Deterministic-Bounded)
-
-Goal:
-- Biome 1 teaches melee pressure + flanking fundamentals
-- No ranged pressure yet (keeps early game fair)
-- Brute appears rarely as a “mini-lesson”
-- Deterministic, seed-bounded selection per room type
-- RL can tune within caps later, but cannot break these hard bounds in Biome 1 MVP
-
-Enemy types available in Biome 1 MVP:
-- `SWARM` (melee grunt)
-- `FLANKER` (fast melee)
-- `BRUTE` (heavy melee, optional)
-Not allowed in Biome 1 MVP:
-- `RANGED`
-- `HEAVY`
-- `SUPPRESSOR`
-- Any other biome-specific enemies
-
----
-
-## 1) Global Composition Constraints (Biome 1)
-
-### 1.1 Global per-room limits (hard)
-- Max BRUTE per room: **1**
-- Max FLANKER per room: **2**
-- Min SWARM per combat/ambush room: **1** (so room always has baseline melee)
-
-### 1.2 Global biome-wide pacing (soft cap but enforced via room templates)
-Across the full biome (rooms 1–7):
-- Total BRUTES spawned: **0–2**
-- Total FLANKERS spawned: **2–6**
-- Total SWARMS spawned: remainder
-
-This ensures variety without turning Biome 1 into “brute spam”.
-
----
-
-## 2) Room-Type Composition (HARD CAPS)
-
-### 2.1 Combat Room (12×12) — Biome 1
-Allowed: SWARM, FLANKER, BRUTE  
-Not allowed: RANGED, HEAVY
-
-**Enemy Count:** **3–5** (hard)  
-**Hard caps:**
-- SWARM: **2–4**
-- FLANKER: **0–2**
-- BRUTE: **0–1**
-- Total: **≤ 5**
-
-**Required patterns (deterministic set):**
-Combat room composition is selected from one of these pattern IDs:
-
-| Pattern ID | SWARM | FLANKER | BRUTE | Total |
-|---|---:|---:|---:|---:|
-| C1 | 3 | 0 | 0 | 3 |
-| C2 | 3 | 1 | 0 | 4 |
-| C3 | 4 | 1 | 0 | 5 |
-| C4 | 2 | 2 | 0 | 4 |
-| C5 | 3 | 2 | 0 | 5 |
-| C6 | 3 | 0 | 1 | 4 |
-| C7 | 2 | 1 | 1 | 4 |
-| C8 | 3 | 1 | 1 | 5 |
-
-Biome 1 “early rooms” restriction:
-- Rooms 1–2 cannot use patterns with BRUTE (C6–C8).
-
----
-
-### 2.2 Ambush Room (8×8) — Biome 1
-Allowed: SWARM, FLANKER  
-BRUTE optional but **off by default** for MVP (recommended).
-
-**Enemy Count:** **3–4** (hard)  
-**Hard caps:**
-- SWARM: **2–4**
-- FLANKER: **0–1** (smaller room)
-- BRUTE: **0** (MVP hard lock)
-
-Ambush composition patterns:
-
-| Pattern ID | SWARM | FLANKER | Total |
-|---|---:|---:|---:|
-| A1 | 3 | 0 | 3 |
-| A2 | 3 | 1 | 4 |
-| A3 | 4 | 0 | 4 |
-| A4 | 2 | 1 | 3 |
-
-Ambush timing:
-- Uses telegraph spawns only (locked earlier).
-
----
-
-### 2.3 Safe Room (12×12)
-- No enemies (hard)
-
----
-
-### 2.4 Elite Room (16×16) — Biome 1
-Elite room is:
-- 1 Elite Guardian + supports (no brute unless you want it)
-
-Allowed supports: SWARM, FLANKER  
-Not allowed: RANGED, HEAVY, BRUTE (MVP)
-
-**Hard composition:**
-- `ELITE_GUARDIAN`: **1** (always)
-- Supports: **2–3** total (hard)
-
-Support caps:
-- SWARM: **1–3**
-- FLANKER: **0–1**
-- BRUTE: **0** (MVP)
-
-Elite support patterns:
-
-| Pattern ID | ELITE | SWARM | FLANKER | Total Enemies |
-|---|---:|---:|---:|---:|
-| E1 | 1 | 2 | 0 | 3 |
-| E2 | 1 | 3 | 0 | 4 |
-| E3 | 1 | 2 | 1 | 4 |
-
-Rule:
-- Elite always spawns at room center-ish (not in safe zones).
-- Supports spawn at anchors with ≥2 tiles separation.
-
----
-
-### 2.5 Mini Boss Room (16×16) — Biome 1
-**Hard composition:**
-- `MINI_BOSS_GUARDIAN`: **1**
-- Adds: **0** (MVP hard lock)
-
-(Anchors exist for future phases/biomes, but unused in Biome 1.)
-
----
-
-## 3) Deterministic Pattern Selection (Seed-Bounded)
-
-For each room:
-1. Build the allowed pattern list based on room_type and room_index stage:
-   - Stage Early (rooms 1–2): exclude BRUTE patterns
-   - Stage Mid (rooms 3–5): allow all Combat patterns, allow Ambush patterns
-   - Stage Late (rooms 6–7): Elite and MiniBoss fixed
-
-2. Select pattern deterministically:
-- `pattern_index = RNG(room_seed).randint(0, len(patterns)-1)`
-- Choose that pattern ID
-
-3. Spawn enemies using anchor selection rules:
-- seeded shuffle anchors
-- take first N anchors
-- enforce min distance; skip invalid
-
-Log:
-- `room_seed`
-- `pattern_id`
-- `enemy_list` (types)
-- `anchors_selected`
-
----
-
-## 4) RL Tuning (Allowed Later, But Bounded)
-
-RL may tune:
-- Probability weights of patterns (e.g., more C2 than C5)
-- Whether BRUTE appears 0–2 times across Biome 1 (still respecting early-room restriction)
-- Enemy counts only by choosing from existing patterns
-
-RL cannot:
-- Add RANGED/HEAVY in Biome 1
-- Exceed caps (e.g., 2 brutes, 3 flankers in one room)
-- Change MiniBoss adds rule in MVP
-
----
-
-## 5) Quick Summary Table
-
-| Room Type | Allowed | Total Enemies | Hard Caps |
-|---|---|---:|---|
-| Combat | Swarm, Flanker, Brute | 3–5 | Flanker≤2, Brute≤1 |
-| Ambush | Swarm, Flanker | 3–4 | Flanker≤1, Brute=0 |
-| Safe | None | 0 | N/A |
-| Elite | Elite + (Swarm/Flanker) | 3–4 | Flanker≤1, Brute=0 |
-| MiniBoss | Boss only | 1 | Adds=0 |
-
-# BIOME 1 — Room Order, Type Distribution & Deterministic Path (FULLY LOCKED)
-
-Biome 1 Goal:
-- Teach melee fundamentals
-- Introduce flanking pressure
-- Introduce brute as “lesson spike”
-- Deliver clean elite + mini boss finish
-- Keep win rate baseline ~70–75% before RL tuning
-
-Total Rooms in Biome 1: **8**
-
-Room Index Meaning:
-- R0 = Start Room (non-combat, already locked)
-- R1–R7 = Biome 1 gameplay rooms
-- R8 = Mini Boss Room
-
-So gameplay path:
-
-R0 → R1 → R2 → R3 → R4 → R5 → R6 → R7 → R8
-
----
-
-# 1️⃣ Fixed Room Count Per Type (HARD LOCK)
-
-Biome 1 must contain:
-
-- Combat Rooms: **4**
-- Ambush Rooms: **2**
-- Safe Room: **1**
-- Elite Room: **1**
-- Mini Boss Room: **1**
-
-Total = 8 gameplay rooms
-
----
-
-# 2️⃣ Hard Positional Constraints
-
-## 2.1 Absolute Locks
-
-- R1: Combat (never safe, never ambush, never brute)
-- R8: Mini Boss (always)
-- Exactly 1 Safe Room in R3–R6 range
-- Elite Room must be after Safe Room
-- Mini Boss always final
-
-## 2.2 Early Protection Rule
-
-Rooms R1–R2:
-- No BRUTE allowed
-- No Elite
-- No Ambush in R1
-- R2 may be Ambush
-
----
-
-# 3️⃣ Deterministic Room Type Distribution
-
-Biome 1 uses this deterministic slot model:
-
-Room Slots:
-
-| Room Index | Type Candidates |
-|------------|-----------------|
-| R1 | Combat |
-| R2 | Combat or Ambush |
-| R3 | Combat or Ambush |
-| R4 | Safe or Combat |
-| R5 | Combat or Elite |
-| R6 | Combat or Elite |
-| R7 | Elite or Combat |
-| R8 | Mini Boss |
-
-Hard rules:
-- Exactly 2 Ambush rooms total (R2–R5 range only)
-- Exactly 1 Safe room (R3–R6)
-- Exactly 1 Elite room (R5–R7)
-
----
-
-# 4️⃣ Room Order Resolution Algorithm (Seeded)
-
-Given run_seed:
-
-Step 1: Assign R1 = Combat
-
-Step 2: Choose Safe Room
-- Choose 1 index from {R3, R4, R5, R6}
-- `safe_index = seeded_choice([3,4,5,6])`
-
-Step 3: Choose Elite Room
-- Must be > safe_index
-- Choose from remaining in {5,6,7}
-- `elite_index = seeded_choice(valid_indices_after_safe)`
-
-Step 4: Choose 2 Ambush Rooms
-- Choose from R2–R5
-- Cannot overlap safe_index
-- Cannot overlap elite_index
-- R1 excluded
-- `ambush_indices = seeded_sample(valid_indices, 2)`
-
-Step 5: Remaining non-assigned rooms become Combat.
-
-This guarantees:
-- Early pacing
-- Safe before Elite
-- Deterministic but varied runs
-
----
-
-# 5️⃣ Example Valid Distributions
-
-Example A:
-R1 Combat  
-R2 Ambush  
-R3 Combat  
-R4 Safe  
-R5 Combat  
-R6 Elite  
-R7 Combat  
-R8 MiniBoss  
-
-Example B:
-R1 Combat  
-R2 Combat  
-R3 Ambush  
-R4 Combat  
-R5 Safe  
-R6 Combat  
-R7 Elite  
-R8 MiniBoss  
-
-Example C:
-R1 Combat  
-R2 Ambush  
-R3 Combat  
-R4 Safe  
-R5 Ambush  
-R6 Combat  
-R7 Elite  
-R8 MiniBoss  
-
-All obey constraints.
-
----
-
-# 6️⃣ Difficulty Curve Across Rooms (LOCKED)
-
-Room Difficulty Rating (Baseline)
-
-| Room | Difficulty Level |
-|------|------------------|
-| R1 | 1/10 |
-| R2 | 2/10 |
-| R3 | 3/10 |
-| R4 | 2/10 (if Safe) or 4/10 |
-| R5 | 4/10 |
-| R6 | 5/10 |
-| R7 | 6/10 (Elite) |
-| R8 | 8/10 (Mini Boss) |
-
-No sudden spike > +2 difficulty between consecutive rooms.
-
----
-
-# 7️⃣ Biome 1 Target Win Rate (Before RL)
-
-Target:
-- **70–75% player win rate** (first-time player)
-
-Mini Boss target clear rate:
-- 60–65%
-
-Elite room survival rate:
-- 75–80%
-
----
-
-# 8️⃣ RL Tuning Scope (Allowed Later)
-
-RL may:
-- Adjust pattern weights inside each room type
-- Adjust hazard percentages within caps
-- Adjust enemy HP ±10%
-- Adjust spawn count within defined patterns
-- Slightly reorder Ambush/Combat within allowed slots
-
-RL may NOT:
-- Move Safe after Elite
-- Add extra Elite
-- Add Ranged enemies
-- Change MiniBoss position
-- Increase total rooms
-- Exceed enemy caps
-
----
-
-# 9️⃣ Final Biome 1 Structure Summary
-
-Biome 1 is now:
-
-✔ Deterministic-bounded  
-✔ Seed-reorderable  
-✔ Early-player protected  
-✔ No hidden spikes  
-✔ RL-ready  
-✔ Mathematically locked  
-
----
-
-Biome 1 is now structurally complete.
-
-If you want next, we can:
-
-A) Lock hazard percentage curve per room index  
-B) Lock enemy stat scaling curve per room index  
-C) Lock Mini Boss exact attack timings & HP  
-D) Move to Biome 2 philosophy  
-
-Your call.
-
-## Biome 1 — Room Plan Skeleton (HARD-LOCKED)
-
-**Indexing (locked):**
-- **Room 1 = Start Room (non-combat)**  
-- **Biome 1 gameplay rooms = Rooms 2–8**
-- **Room 8 = Mini Boss Room (end of Biome 1, fixed)**
-
-Total rooms in Biome 1 segment including start: **8 rooms (1–8)**
-
----
-
-### A) Room Type Counts (Rooms 2–8 only)
-
-Biome 1 must contain exactly:
-
-- **Combat Rooms:** 4  
-- **Ambush Rooms:** 2  
-- **Safe Room:** 1  
-- **Elite Room:** 1  
-- **Mini Boss Room:** 1 (fixed at Room 8)
-
-Note: counts above include rooms 2–8 (7 rooms), where Elite + Safe + Ambush + Combat are arranged under constraints.
-
----
-
-### B) Hard Order Rules (Deterministic Constraints)
-
-These rules must always hold:
-
-1. **Room 1 is always Start Room** (non-combat, tutorial/story/dummy).
-2. **Room 8 is always Mini Boss Room** (fixed).
-3. **Safe Room appears exactly once** in Rooms **3–6** (never Room 2, never Room 7).
-4. **Elite Room appears exactly once** in Rooms **6–7** (and must be after the Safe Room).
-5. **Room 2 cannot be Safe** (it is always Combat or Ambush).
-6. **No more than 2 Ambush rooms** in Biome 1, and both must be in Rooms **2–5**.
-7. **Early protection:** Rooms **2–3** cannot use BRUTE patterns (composition rule already locked).
-
----
-
-### C) Flexible Slots (Combat vs Ambush) — Director/Seed Allowed
-
-Rooms with flexible type (eligible for Combat/Ambush selection):
-
-- **Room 2:** Combat or Ambush  
-- **Room 3:** Combat or Ambush  
-- **Room 4:** Combat or Ambush *(unless it is chosen as Safe)*  
-- **Room 5:** Combat or Ambush  
-
-Fixed-type rooms (not flexible):
-- **Room 1:** Start
-- **Room 8:** Mini Boss
-- **Safe Room:** fixed once chosen (Room 3–6)
-- **Elite Room:** fixed once chosen (Room 6–7)
-
----
-
-### D) Deterministic Seed-Based Assignment (Room Type Schedule)
-
-Given `run_seed`, assign room types using this deterministic algorithm:
-
-**Step 1 — Lock fixed rooms**
-- Room 1 = Start
-- Room 8 = Mini Boss
-
-**Step 2 — Choose Safe Room index**
-- Choose 1 from `{3,4,5,6}`
-- `safe_index = seeded_choice([3,4,5,6])`
-
-**Step 3 — Choose Elite Room index**
-- Elite must be after Safe
-- Choose 1 from `{6,7}` but only those `> safe_index`
-- `elite_index = seeded_choice(valid_elite_indices)`
-
-**Step 4 — Choose Ambush Rooms**
-- Ambush must be exactly 2 total
-- Choose 2 unique indices from `{2,3,4,5}` excluding `safe_index`
-- `ambush_indices = seeded_sample(valid_ambush_indices, 2)`
-
-**Step 5 — Remaining unassigned rooms become Combat**
-- Any room in `{2..7}` that is not Safe/Elite/Ambush becomes Combat
-
-This produces deterministic but varied Biome 1 schedules while respecting all constraints.
-
----
-
-### E) Allowed Permutations (Examples)
-
-Example A:
-- 1 Start
-- 2 Combat
-- 3 Ambush
-- 4 Safe
-- 5 Combat
-- 6 Ambush
-- 7 Elite
-- 8 Mini Boss
-
-Example B:
-- 1 Start
-- 2 Ambush
-- 3 Combat
-- 4 Ambush
-- 5 Safe
-- 6 Combat
-- 7 Elite
-- 8 Mini Boss
-
-Example C:
-- 1 Start
-- 2 Combat
-- 3 Ambush
-- 4 Combat
-- 5 Ambush
-- 6 Safe
-- 7 Elite
-- 8 Mini Boss
-
----
-
-### F) Director Policy (Optional but Compatible)
-
-- Seed defines the schedule above.
-- Director may tune:
-  - enemy compositions within room-type caps
-  - hazard percent within room-type caps
-- Director may NOT:
-  - move Safe after Elite
-  - change Elite/Mini Boss positions
-  - exceed ambush count
-  - introduce ranged/heavy enemies in Biome 1 MVP
-
-  ## Biome 1 — Room Clear & Door Unlock Rules (HARD-LOCKED)
-
-This section defines exactly when a room is considered “cleared” and when doors unlock.
-Applies to: Combat, Ambush, Elite rooms in Biome 1 (Safe + Start are always unlocked; Mini Boss unlocks after boss defeat).
-
----
-
-### A) Definitions (Runtime Counters)
-
-A room maintains these counters/sets:
-
-- **Active Enemies**: enemies that currently exist in the room world state and are alive  
-  - Includes: normal enemies, elite supports, summoned adds (if any), and elite itself  
-  - Excludes: dead enemies (HP ≤ 0)
-
-- **Pending Telegraph Spawns**: telegraph events that have started but have not spawned yet  
-  - Each has: `telegraph_start_frame`, `spawn_frame`, `grace_end_frame`, `anchor`, `enemy_type`
-
-- **Pending Reinforcement Waves**: reinforcement waves that are scheduled but not yet fully spawned  
-  - Wave is considered “pending” if:
-    - wave is not started yet OR
-    - wave is currently telegraphing OR
-    - wave has unspawned enemies remaining
-
-- **Room Lock State**: `LOCKED` during combat, `UNLOCKING_DELAY` after clear check passes, `UNLOCKED` when doors open
-
----
-
-### B) What Counts as “Enemy Remaining”?
-
-✅ **Summoned enemies count** as active enemies until killed.  
-✅ **Elite enemies count** until killed.  
-✅ **Minions/adds count** (if boss/elite summons in later biomes).  
-❌ Telegraph overlays do NOT count as enemies (they are only “pending spawns”).
-
----
-
-### C) Room Clear Condition (HARD)
-
-A room is “cleared” only when ALL of these are true at the same moment:
-
-1) **Active Enemies = 0**  
-2) **Pending Telegraph Spawns = 0**  
-3) **Pending Reinforcement Waves = 0**  
-4) **No enemy spawn is scheduled in the future** (i.e., no future wave timers)
-
-Then the room enters an unlock delay state.
-
----
-
-### D) Unlock Delay (HARD)
-
-After the clear condition becomes true:
-
-- Start **Unlock Delay Timer: 0.50 sec** (30 frames at 60 FPS)
-- During this delay:
-  - No new spawns may be scheduled
-  - If any enemy appears (should not happen if rules above are correct), cancel unlock and return to LOCKED
-
-When unlock delay completes:
-- Doors become **UNLOCKED**
-- Door visuals change to “open”
-- Player may exit
-
----
-
-### E) When Does a Room Become Locked?
-
-Room locks at the moment the player crosses the entry threshold.
-
-**Combat Room:**
-- Locks instantly when player enters
-- All enemies spawn immediately (no telegraph in Biome 1 combat by default)
-
-**Ambush Room:**
-- Locks instantly when player enters
-- Enemies spawn via telegraph (pending telegraph spawns > 0)
-
-**Elite Room:**
-- Locks instantly when player enters
-- Elite spawns immediately + supports spawn (may be immediate or telegraphed depending on design; both supported by this rule set)
-
----
-
-### F) Special Room Types
-
-#### Start Room (Room 1)
-- Always unlocked (no combat lock)
-- Doors always open (player can leave anytime)
-
-#### Safe Room
-- Always unlocked
-- No enemies
-- Doors always open
-
-#### Mini Boss Room (Room 8)
-- Locks on entry
-- Clear condition is:
-  - Boss HP ≤ 0
-  - Active Enemies = 0 (adds count if present in future)
-  - Pending Telegraph Spawns = 0
-  - Pending Reinforcement Waves = 0
-- Then 0.50 sec unlock delay, then doors open
-
----
-
-### G) Edge Cases (HARD)
-
-1) **Enemy dies during telegraph spawn**
-- No effect; telegraph is independent.
-- Clear cannot happen until pending telegraph spawns = 0.
-
-2) **Telegraph retargeted due to invalid tile**
-- Still counts as pending telegraph spawn until it spawns or is canceled.
-
-3) **Waves scheduled but canceled**
-- If a wave is canceled, it must be removed from pending waves list immediately.
-- Clear condition uses the current list state only.
-
----
-
-### H) Logging (Required)
-
-For every room:
-- `room_lock_frame`
-- `room_unlock_start_frame`
-- `room_unlock_frame`
-- `clear_condition_first_true_frame`
-- `active_enemies_peak`
-- `telegraph_spawns_count_total`
-- `reinforcement_waves_total`
-- `unlock_delay_canceled_count` (should be 0)
-
-This is important for debugging and RL training.
-
-## Biome 1 — Difficulty Curve (Mathematically LOCKED Baseline Before RL)
-
-Purpose:
-- Provide a deterministic “difficulty slope” across Biome 1 rooms.
-- Seed may reorder room types within the allowed skeleton, but the **intensity budget** must still follow this curve.
-- RL later tunes parameters *within caps*, but must respect this baseline curve shape.
-
-Indexing (locked):
-- **Room 1 = Start Room**
-- **Rooms 2–8 = Biome 1 gameplay**
-- **Room 8 = Mini Boss (fixed)**
-
----
-
-### A) Difficulty Scale + Room Intensity Budget
-
-We define a discrete intensity scale `I` per room:
-- `I ∈ {0,1,2,3,4,5}`
-- 0 = none, 5 = peak
-
-Each room type maps to a base intensity:
-
-| Room Type | Base Intensity `I_base` |
-|---|---:|
-| Start | 0 |
-| Safe | 0 |
-| Combat (early) | 1 |
-| Combat (mid) | 2 |
-| Ambush | 2 |
-| Combat (late) | 3 |
-| Elite | 4 |
-| Mini Boss | 5 |
-
----
-
-### B) Locked Baseline Curve by Room Index (Target Intensities)
-
-This is the required curve (baseline), regardless of seed permutation:
-
-| Room Index | Target Intensity `I_target` | Notes |
-|---:|---:|---|
-| 1 | 0 | Start room, non-combat |
-| 2 | 1 | First fight is easy (no brute) |
-| 3 | 1–2 | Still easy; ambush allowed but must stay ≤2 |
-| 4 | 0–2 | Safe may appear here (0), otherwise a mild fight |
-| 5 | 2–3 | Mid difficulty begins |
-| 6 | 2–4 | Safe or mid/late fight; Elite may appear (if after Safe) |
-| 7 | 3–4 | Late fight or Elite (high) |
-| 8 | 5 | Mini Boss peak |
-
-**Hard slope rule (anti-spike):**
-- Between consecutive rooms, intensity cannot increase by more than **+2**
-  - `I_room(k) - I_room(k-1) ≤ 2`
-
----
-
-### C) Room-Type Assignment Must Respect Intensity Bands
-
-Given the room skeleton (Safe once in 3–6, Elite once in 6–7, Ambush twice in 2–5):
-
-#### C1) Early rooms (Rooms 2–3)
-- Must be **I ≤ 2**
-- BRUTE patterns forbidden (already locked)
-- Enemy count must stay in “early range”:
-  - Combat patterns allowed: C1–C5 only (no brute)
-  - Ambush patterns allowed: A1–A4
-
-#### C2) Mid rooms (Rooms 5–6)
-- Must be **I ∈ [2,3]** unless one is Elite (4) or Safe (0)
-- If Safe occurs here, the *next* room may be Elite (4) because slope still ≤ +2 from 0 → 2/3/4
-
-#### C3) Late room (Room 7)
-- Must be **I ∈ [3,4]**
-- If Elite is Room 7, it is **I = 4**
-
-#### C4) Mini Boss (Room 8)
-- Always **I = 5**
-
----
-
-### D) Deterministic Difficulty Budget (Numbers You Can Implement)
-
-For each intensity level, we lock a parameter budget range.
-RL later can tune inside these bounds.
-
-#### D1) Enemy Count Budget by Intensity
-| Intensity | Allowed Total Enemies (Combat/Ambush) |
-|---:|---|
-| 1 | 3–4 |
-| 2 | 3–5 |
-| 3 | 4–5 |
-| 4 (Elite room) | Elite + 2–3 supports |
-| 5 (Mini Boss) | Boss only |
-
-#### D2) Hazard Budget by Intensity (Biome 1 caps, room-type aware)
-| Intensity | Lava % | Slow % |
-|---:|---:|---:|
-| 1 | 0–3% | 5–8% |
-| 2 | 0–6% | 5–12% |
-| 3 | 0–10% | 5–15% |
-| 4 (Elite) | 0–8% | 5–15% |
-| 5 (Mini Boss) | 0% in arena (hard) | 0–5% outside arena only |
-
-Safe room:
-- Lava = 0% (hard), Slow = 0–5% outside interaction zone only
-
----
-
-### E) Baseline Progression Example (Canonical)
-
-This is the canonical “easy-to-peak” example (one valid schedule):
-
-| Room | Type | Intensity |
-|---:|---|---:|
-| 1 | Start | 0 |
-| 2 | Combat | 1 |
-| 3 | Combat | 1 |
-| 4 | Safe | 0 |
-| 5 | Combat | 2 |
-| 6 | Ambush | 2 |
-| 7 | Elite | 4 |
-| 8 | Mini Boss | 5 |
-
-Other schedules are allowed, but must satisfy the intensity bands and slope rule.
-
----
-
-### F) RL Note (Baseline Before RL)
-
-Before RL, we balance Biome 1 so average player clear rate ~60–70% (project target band can be adjusted later).
-RL optimizes within caps:
-- pattern weights
-- hazard % inside ranges
-- small stat scalers
-But RL must preserve:
-- Safe before Elite
-- Anti-spike slope rule
-- No ranged/heavy enemies in Biome 1 MVP
-
-## Biome 1 — RL Logging System (HARD-LOCKED: Frequency, Format, Resolution, Storage)
-
-Purpose:
-- Enable offline RL / tuning later without changing gameplay logic.
-- Ensure logs are deterministic, complete, and easy to parse.
-
-This is the authoritative logging contract for Biome 1.
-
----
-
-### A) Log Frequency (What gets logged and when)
-
-We log at **three levels**:
-
-#### A1) Run-level (1 record per run)
-Logged:
-- **At run start**
-- **At run end** (victory/defeat/quit)
-
-#### A2) Room-level (1 record per room)
-Logged:
-- **On room entry**
-- **On room clear / exit**
-- **On room death** (if player dies inside room)
-
-#### A3) Encounter/Wave-level (0..N per room)
-Logged:
-- **Each spawn event** (including ambush telegraph spawn and reinforcement wave spawn)
-- **Each wave start / wave end** (if waves exist)
-
-Biome 1 MVP note:
-- Combat rooms may have “single wave” only (still logged as wave 0).
-- Ambush rooms always log telegraph spawns.
-
----
-
-### B) Logging Resolution (Time + Frame)
-
-Hard lock:
-- Primary time resolution = **frame index** at **60 FPS**
-- Each log event includes:
-  - `frame`: integer frame count since run start
-  - `t_sec`: float time seconds = `frame / 60.0`
-
-Reason:
-- Deterministic replay/debugging + matches telegraph timing spec.
-
----
-
-### C) Output Format (File Format + Storage)
-
-Hard lock:
-- **JSON Lines** format (`.jsonl`)
-  - One JSON object per line
-  - Append-only (safe for crashes)
-
-File naming:
-```plaintext
-logs/runs/run_<UTC_ISO>_<seed>.jsonl
-
-Example:
-
-logs/runs/run_2026-02-23T21-15-02Z_seed123456.jsonl
-
-Why JSONL:
-
-Easy to stream/write during play
-
-Easy to parse in Python for RL
-
-Doesn’t break if partial write occurs
-
-Optional (post-processing):
-
-Convert JSONL → CSV after run completes (offline script)
-
-D) Director Snapshot Storage (Where “director state” goes)
-
-Hard lock:
-
-Director state is stored as a nested object inside each room-level and wave-level log record.
-
-Additionally, store a lightweight director “heartbeat” snapshot:
-
-once every 5 seconds (300 frames)
-
-only while in combat rooms (not in safe/start)
-
-This ensures RL can correlate outcomes with director decisions over time.
-
-E) Log Event Types (Schema)
-
-Every JSON object must include:
-
-E1) Common header fields (present in ALL events)
-{
-  "schema_version": "biome1_v1",
-  "run_id": "run_2026-02-23T21-15-02Z_seed123456",
-  "seed": 123456,
-  "biome_id": 1,
-  "room_index": 2,
-  "room_type": "combat",
-  "event_type": "room_enter",
-  "frame": 840,
-  "t_sec": 14.0
-}
-F) Required Event Records
-F1) run_start
-
-Logged once at run start.
-Fields:
-
-player_base_stats
-
-starting_loadout
-
-initial_director_state
-
-F2) run_end
-
-Logged once at end.
-Fields:
-
-end_reason: "victory" | "defeat" | "quit"
-
-final_room_index
-
-total_time_sec
-
-summary_metrics (see Section H)
-
-F3) room_enter
-
-Fields:
-
-room_seed
-
-regen_attempt_used
-
-hazard_percent_lava
-
-hazard_percent_slow
-
-anchors_available_count
-
-doors_locked: true/false
-
-director_state (snapshot)
-
-F4) room_exit
-
-Fields:
-
-clear_time_sec
-
-clear_time_frames
-
-damage_taken_in_room
-
-heals_used_in_room
-
-deaths_in_room (0/1)
-
-enemies_spawned_total
-
-telegraph_spawns_total
-
-waves_total
-
-unlock_frame
-
-director_state (snapshot)
-
-F5) room_death
-
-Fields:
-
-cause: "enemy" | "hazard" | "boss"
-
-damage_source_id (enemy type or hazard type)
-
-frame_of_death
-
-room_progress_pct (0..1)
-
-director_state (snapshot)
-
-F6) wave_start
-
-Fields:
-
-wave_id (0..N)
-
-spawn_plan (enemy list by type)
-
-spawn_anchor_list
-
-pending_telegraphs_count
-
-director_state
-
-F7) spawn_event
-
-Logged per enemy spawn (including telegraph-based spawns).
-Fields:
-
-spawn_id
-
-spawn_method: "immediate" | "telegraph_tile" | "telegraph_ring" | "telegraph_line"
-
-telegraph_start_frame (if telegraph)
-
-telegraph_spawn_frame (if telegraph)
-
-spawn_anchor (row,col)
-
-enemy_type
-
-enemy_max_hp
-
-enemy_params (speed, attack_cd, damage)
-
-F8) wave_end
-
-Fields:
-
-wave_id
-
-wave_duration_frames
-
-wave_damage_to_player
-
-enemies_killed_in_wave
-
-director_state
-
-F9) director_heartbeat (every 300 frames in combat)
-
-Fields:
-
-director_state
-
-active_enemies
-
-player_hp_pct
-
-room_intensity_target
-
-G) Director State Object (Locked Fields)
-
-director_state must include:
-
-{
-  "intensity_target": 2,
-  "difficulty_band": "mid",
-  "allowed_enemy_types": ["swarm","flanker"],
-  "pattern_id": "C2",
-  "hazard_budget": {"lava_pct": 4, "slow_pct": 10},
-  "spawn_caps": {"max_brute": 1, "max_flanker": 2, "total_cap": 5},
-  "recent_outcomes": {"rooms_cleared": 3, "rooms_failed": 0}
-}
-
-This snapshot is the minimum RL needs to learn what the director was trying to do.
-
-H) Run Summary Metrics (Required at run_end)
-
-summary_metrics:
-
-rooms_cleared
-
-avg_clear_time_sec
-
-total_damage_taken
-
-total_healing_gained
-
-telegraph_avoid_rate (fraction of telegraphed spawns where player not hit within 1 sec after spawn)
-
-death_count
-
-win (true/false)
-
-I) Storage Path (Project)
-
-Hard lock log location:
-
-logs/runs/
-logs/index.json   (optional)
-
-Implementation note:
-
-Ensure logs/runs/ exists at startup.
-
-Append logs line-by-line during runtime to avoid losing data.
-
-J) RL Training Export (Later, Offline)
-
-Offline scripts can generate:
-
-runs.csv (one line per run)
-
-rooms.csv (one line per room)
-
-spawns.csv (one line per spawn_event)
-
-waves.csv (one line per wave_start/end)
-
-But the in-game runtime format stays JSONL (hard lock).
-
-## Biome 1 — AI Director Flexible Slot Rule (HARD-LOCKED)
-
-Purpose:
-- Keep Biome 1 deterministic and bounded
-- Allow *limited* director choice (Combat vs Ambush) without breaking structure
-- Seed defines which rooms are eligible; Director chooses within hard constraints
-
----
-
-### A) Definitions
-
-**Fixed Rooms (never change):**
-- Start Room (Room 1)
-- Mini Boss Room (Room 8)
-- Safe Room (the chosen safe_index)
-- Elite Room (the chosen elite_index)
-
-**Flexible Slot:**
-A room index that is eligible to be either:
-- `Combat`
-- `Ambush`
-
-Flexible slots are **marked by the seed** and **resolved by the AI Director at runtime**.
-
----
-
-### B) Hard Constraints (Biome 1)
-
-#### B1) Maximum flexible slots allowed
-- **Max Flexible Slots per Biome 1 run: 1** (HARD)
-
-#### B2) What Director is allowed to change
-Director may only choose:
-- **Combat vs Ambush** for that one flexible room.
-
-Director may NOT:
-- Change room count totals
-- Change room sizes
-- Change doors, anchors, or safe zones
-
-#### B3) Rooms that can never be overridden (HARD)
-Director cannot override these rooms under any condition:
+Director cannot override:
 - Start (Room 1)
+- Safe room (safe_index)
+- Elite room (elite_index)
 - Mini Boss (Room 8)
-- Safe Room (safe_index)
-- Elite Room (elite_index)
 
-#### B4) Flexible slot eligibility window (HARD)
-Flexible slot must be in:
-- **Room 3, Room 4, or Room 5**
-And must NOT equal:
-- safe_index
-- elite_index
+Log event: `director_flex_resolve` with (flex_index, chosen_type, reason_codes).
 
-So eligible candidates = `{3,4,5} - {safe_index, elite_index}`
-
-#### B5) Ambush cap rule (HARD)
-Biome 1 total ambush rooms must remain:
-- **exactly 2** (as locked in composition skeleton)
-
-So Director can only choose Ambush if it does NOT exceed:
-- `ambush_count_target = 2`
 
 ---
 
-### C) Seed Marking Rule (Deterministic)
+## 17) Logging for RL (Hard-Locked JSONL Contract)
 
-At biome generation time (from run_seed):
+**Format:** JSON Lines (.jsonl), append-only  
+**Path:** `logs/runs/run_<UTC_ISO>_<seed>.jsonl`
 
-1. Generate the room schedule using the deterministic skeleton:
-   - safe_index chosen
-   - elite_index chosen
-   - ambush_indices chosen (2 rooms)
-   - remaining become combat
-   - Room 8 fixed as mini boss
+**Resolution:** frame index at **60 FPS** + `t_sec = frame/60.0`
 
-2. Determine if a flexible slot exists:
-   - Candidate set = `{3,4,5} - {safe_index, elite_index}`
-   - If candidate set is empty → **no flexible slot this run**
-   - Otherwise seed selects exactly 1:
-     - `flex_index = seeded_choice(candidate_set)`
-     - Mark `flex_index` with `is_flexible = true`
+**Frequency:**
+- Run-level: start + end
+- Room-level: enter + exit (+ death)
+- Wave/spawn-level: wave start/end, every spawn_event (including telegraph spawns)
+- Director heartbeat: every **300 frames** during combat rooms
 
-Hard lock:
-- At most 1 `flex_index` per run.
+Director state snapshot is stored inside each room/wave record as `director_state`.
+
 
 ---
 
-### D) Runtime Director Choice Logic (Combat vs Ambush)
+## 18) Optional LLM Features
 
-When the player is about to enter `flex_index` room:
+- LLM is optional. If disabled/unavailable, use the static story text.
+- All LLM outputs must be capped (<180 words) and must not include mechanics.
 
-Director evaluates recent metrics (last 1–2 rooms only):
-- player HP%
-- damage taken last room
-- time-to-clear last room
-- death count this run
-
-Director chooses:
-- `Combat` OR `Ambush`
-
-Hard lock decision gate:
-- If choosing Ambush would violate biome ambush target counts → force Combat.
 
 ---
 
-### E) Logging (Required)
+## 19) Determinism & Seeds
 
-When a flexible slot is resolved, log:
+- Seed drives procedural generation and flexible-slot marking.
+- Seed must **never** be displayed in UI.
 
-Event: `director_flex_resolve`
-Fields:
-- `flex_index`
-- `seed_marked_type` (what the skeleton initially assigned)
-- `director_choice_type` (combat/ambush)
-- `reason_codes` (e.g., LOW_HP, HIGH_CLEAR_SPEED, NEED_VARIETY)
-- `ambush_count_before`, `ambush_count_after`
 
 ---
 
-### F) Summary (Biome 1)
+## 20) Asset TODO Checklist
 
-✅ Seed may mark **0 or 1** flexible slot per run  
-✅ Director may only toggle **Combat ↔ Ambush**  
-❌ Director cannot override **Start, Safe, Elite, Mini Boss**  
-❌ Director cannot change total room counts or reorder rooms  
-✅ Deterministic + bounded + RL-ready  
+- Enemy sprites (swarm/flanker/brute/elite/mini boss) with hit/death animations
+- Spawn portal animation frames (if not present)
+- Slash VFX + hit impact effects
+- Lava animation frames (optional)
+- Corridor tileset (optional)
+- UI door indicators/overlays if `assets/tiles/doors/` is used
 
-## Biome 1 — Visual Identity Lock (Palette + Tints + Lighting + Particles)
+# SECTION — Biome 1 Asset Binding Contract (Authoritative)
 
-Goal:
-Give Biome 1 a consistent “Hades-like dungeon” mood without requiring dynamic lighting.
-This is a hard-locked art direction contract for all Biome 1 rooms.
+This section defines:
 
-Resolution context:
-- Target screen: 1920×1080
-- Tile size: 32×32
-- Sprites: silhouette-forward, high-contrast readability
+- Exact folder structure
+- Required PNG names
+- Frame counts
+- Sprite dimensions
+- Animation FPS
+- Gameplay linkage
+- Fallback rules
 
----
-
-### A) Core Palette (Biome 1)
-
-Biome 1 theme: **“Ash Dungeon / Warm Torchlight”**
-
-Hard-locked palette (HEX):
-- **Base Shadow (deep):** `#0B0E14`
-- **Dungeon Floor (base):** `#2A2C32`
-- **Dungeon Floor (highlight):** `#3A3D45`
-- **Dungeon Walls (base):** `#3B3330`
-- **Dungeon Walls (edge highlight):** `#5A4A42`
-- **Torch Warm Light:** `#E0A24A`
-- **Accent Ember Red:** `#B93B2D`
-- **UI Gold Accent:** `#D6B35A`
-
-Hazards (locked):
-- **Lava core:** `#FF5A1F`
-- **Lava mid:** `#D63B1E`
-- **Lava dark:** `#6B1A12`
-- **Slow terrain tint:** `#3E4A3B` (mud/lichen feel)
-
-Telegraphs (locked, consistent with earlier):
-- Standard spawn telegraph: **Red** `#FF2B2B`
-- Elite telegraph: **Gold** `#FFD24A`
-- Boss telegraph: **Purple** `#B05CFF`
+This section overrides any ambiguity elsewhere.
 
 ---
 
-### B) Floor Tint + Variation Rules
+## 1️⃣ Global Rendering Rules
 
-Biome 1 floor must be:
-- Neutral dark gray base with subtle warm highlights
-- No high saturation (keeps silhouettes readable)
-
-Variation rule (optional but recommended):
-- Use **3–5 floor variants** (same palette family)
-- Scatter at **10–20%** placement probability
-- Never place variant tiles inside reserved safe-zones if they reduce readability
-
----
-
-### C) Wall Tint + Edge Rules
-
-Walls must be:
-- Slightly warmer than floor (brown-gray)
-- Stronger edge highlight on top/inner edges for readability
-
-Hard rules:
-- Wall outline contrast must be visible against floor at a glance
-- Corners must read cleanly at 32×32 scale
+- Tile size: **32×32**
+- Entity sprite size: **64×64**
+- Brute optional size: **80×80**
+- Mini Boss size: **96×96**
+- Final Boss size: **128×128**
+- Anchor point: **center alignment**
+- Transparent PNG required
+- Engine baseline: **60 FPS**
+- Animations loop unless explicitly marked non-loop
+- All assets load from `assets/`
+- Missing asset → load `assets/placeholders/missing.png`
+- Game must NOT crash on missing asset
 
 ---
 
-### D) Lava Visual Tone (Biome 1)
+## 2️⃣ Player Asset Contract
 
-Lava should read as:
-- **bright molten orange core**
-- **dark crust edges**
-- minimal animation (3–4 frames loop)
+**Base Path:**  
+`assets/entities/player/`
 
-Hard rules:
-- Lava must visually “pop” more than floor (danger clarity)
-- Lava animation must not shift tile edges (seamless tiling)
+| Folder        | Frames | FPS | Loop |
+|---------------|--------|-----|------|
+| idle          | 2–4    | 6   | Yes  |
+| walk          | 4–6    | 8   | Yes  |
+| attack_short  | 4      | 10  | No   |
+| attack_long   | 6      | 10  | No   |
+| dash          | 2–3    | 12  | No   |
+| block         | 1–2    | Static | Yes |
+| parry         | 2      | 12  | No   |
+| hit           | 1      | 0.1 sec | No |
+| death         | 3–4    | 6   | No   |
+
+After death animation completes → entity removed.
+
+Sprite size: **64×64 px**
 
 ---
 
-### E) Lighting / Color Grading (No Dynamic Lighting)
+## 3️⃣ Enemy Asset Contract — Biome 1
 
-Biome 1 uses a static global color grade overlay:
+Base path pattern:
 
-**Global grade overlay:**
-- Warm vignette (subtle)
-- Opacity: **12–18%**
-- Tint: `#E0A24A` (torch warmth)
-- Vignette strength: mild (do not hide corners)
 
-Hard rule:
-- No dynamic lights required in MVP.
-- Grade overlay is applied uniformly per room.
+assets/entities/enemies/<enemy_type>/
 
-File (recommended):
-```plaintext
-assets/lighting/biome1_grade_overlay_1920x1080.png
-F) Ambient Particles (Yes/No + Locked)
 
-Ambient particles: YES (locked)
+---
 
-Biome 1 particle style:
+### 3.1 Swarm (64×64)
 
-small ember dust / ash motes
+`assets/entities/enemies/swarm/`
 
-slow upward drift
+| Animation | Frames | FPS | Loop |
+|-----------|--------|-----|------|
+| idle      | 2      | 6   | Yes  |
+| walk      | 4      | 8   | Yes  |
+| attack    | 3      | 10  | No   |
+| hit       | 1      | Flash | No |
+| death     | 2      | 8   | No   |
 
-low density
+Elite variant uses overlay (see Section 4).
 
-Hard-locked settings:
+---
 
-Particle count: 18–28 on screen
+### 3.2 Flanker (64×64)
 
-Speed: 8–14 px/sec upward drift
+`assets/entities/enemies/flanker/`
 
-Alpha: 20–40%
+| Animation | Frames | FPS |
+|-----------|--------|-----|
+| idle      | 2      | 6   |
+| walk      | 4      | 10  |
+| dash      | 3      | 14  |
+| attack    | 3      | 12  |
+| death     | 2      | 8   |
 
-Size: 2–4 px
+---
 
-Spawn region: random across screen (not tied to player)
+### 3.3 Brute (64×64 or 80×80)
 
-Layer: behind entities, above floor
+`assets/entities/enemies/brute/`
 
-File (optional sprites):
+| Animation | Frames | FPS |
+|-----------|--------|-----|
+| idle      | 2      | 5   |
+| walk      | 4      | 6   |
+| windup    | 2      | 6   |
+| slam      | 3      | 10  |
+| death     | 3      | 6   |
 
-assets/effects/particles/ember_01_4x4.png
-assets/effects/particles/ember_02_4x4.png
-assets/effects/particles/ash_01_4x4.png
+---
 
-If you don’t want particle sprites:
+## 4️⃣ Elite Modifier Overlay
 
-render as simple circles with alpha (still allowed)
+Path:
 
-G) Biome 1 Room Mood Summary
 
-Biome 1 should feel:
+assets/entities/enemies/elite/
 
-dark and claustrophobic but readable
 
-warm torch tint
+Required files:
 
-clear hazards (lava bright)
+- `elite_glow_overlay.png`
+- `elite_aura_01.png`
+- `elite_aura_02.png`
 
-high-contrast silhouettes for player/enemies
+Rules:
 
-subtle ash/embers for atmosphere
+- +40% HP
+- +20% Damage
+- Aura loops at 6 FPS
+- Overlay rendered above base sprite
+- Elite telegraph uses gold variant
 
-This locks Biome 1 visual personality for implementation and asset creation.
+---
+
+## 5️⃣ Mini Boss (Biome 1)
+
+Path:
+
+
+assets/entities/enemies/mini_boss/
+
+
+Sprite size: **96×96**
+
+| Animation     | Frames | FPS |
+|---------------|--------|-----|
+| idle          | 3      | 5   |
+| move          | 4      | 6   |
+| attack_01     | 4      | 10  |
+| attack_02     | 4      | 10  |
+| dash          | —      | —   |
+| windup        | —      | —   |
+| phase_change  | —      | —   |
+| hit           | —      | —   |
+| death         | 4      | 6   |
+
+Death → spawn reward → unlock doors after delay.
+
+Health Bar Assets:
+
+
+assets/ui/hud/mini_boss_health_frame_400x40.png
+assets/ui/hud/mini_boss_health_fill_396x24.png
+
+
+---
+
+## 6️⃣ Spawn Effects
+
+### 6.1 Telegraph Tiles
+
+Path:
+
+
+assets/effects/telegraphs/
+
+
+Required:
+
+- `telegraph_tile_32x32.png`
+- `telegraph_tile_anim_32x32.png`
+- `telegraph_elite_gold_32x32.png`
+- `telegraph_elite_gold_anim_32x32.png`
+
+Duration: 0.5 sec  
+Pulses: 3  
+No collision  
+Spawn at frame 30  
+
+---
+
+### 6.2 AoE Telegraph
+
+- `telegraph_aoe_ring_256x256.png`
+- `telegraph_elite_gold_aoe_256x256.png`
+- `telegraph_boss_purple_line_256x64.png`
+
+Animate at **12 FPS**
+
+---
+
+### 6.3 Spawn Portal
+
+Path:
+
+
+assets/effects/spawn_portal/
+
+
+Files:
+
+- `frame_01.png`
+- `frame_02.png`
+- `frame_03.png`
+- `frame_04.png`
+- `frame_05.png`
+- `frame_06.png`
+
+6 frames  
+12 FPS  
+Spawn occurs at final frame  
+
+---
+
+## 7️⃣ Player Attack VFX
+
+Path:
+
+
+assets/effects/slash/
+
+
+- `slash_short_01.png`
+- `slash_short_02.png`
+- `slash_long_01.png`
+- `slash_long_02.png`
+
+Hit Impact:
+
+
+assets/effects/hit/
+
+
+- `hit_spark_01.png`
+- `hit_spark_02.png`
+
+---
+
+## 8️⃣ Damage Numbers
+
+
+assets/ui/damage_numbers/font_damage.ttf
+
+
+Rules:
+
+- Red → damage taken
+- Yellow → damage dealt
+- Float duration: 0.6 sec
+- Fade to 0 alpha
+
+---
+
+## 9️⃣ Hazard Tiles
+
+Path:
+
+
+assets/tiles/
+
+
+Required:
+
+- `floor_tile.png`
+- `lava_tile_32x32.png`
+- `lava_tile_anim_32x32.png`
+- `slow_tile_32x32.png`
+
+Wall tiles (if used):
+
+- `wall_top_32x32.png`
+- `wall_bottom_32x32.png`
+- `wall_left_32x32.png`
+- `wall_right_32x32.png`
+- `wall_corner_tl_32x32.png`
+- `wall_corner_tr_32x32.png`
+- `wall_corner_bl_32x32.png`
+- `wall_corner_br_32x32.png`
+
+Lava Animation:
+
+- 3-frame loop
+- 6 FPS
+- **Damage: 6 HP/sec**
+
+---
+
+## 🔟 Doors
+
+Path:
+
+
+assets/tiles/doors/
+
+
+- `door_closed_32x32.png`
+- `door_locked_32x32.png`
+- `door_open_32x32.png`
+- `door_safe_32x32.png`
+
+Locked during combat  
+Unlock delay → 0.5 sec  
+
+---
+
+## 1️⃣1️⃣ HUD
+
+Path:
+
+
+assets/ui/hud/
+
+
+- `health_bar_frame_192x32.png`
+- `health_bar_fill_190x26.png`
+- `health_bar_damage_flash_clean_192x32.png`
+- `health_bar_lowhp_glow_clean_192x32.png`
+- `icon_attack_24x24.png`
+- `icon_defence_24x24.png`
+- `icon_speed_24x24.png`
+
+Boss:
+
+- `final_boss_health_frame_800x60.png`
+- `boss_phase_marker_20x40.png`
+- `boss_nameplate_panel_600x80.png`
+
+---
+
+## 1️⃣2️⃣ Corridor Tileset
+
+Path:
+
+
+assets/tiles/corridor/
+
+
+- `corridor_floor_32x32.png`
+- `corridor_wall_top_32x32.png`
+- `corridor_wall_bottom_32x32.png`
+- `corridor_wall_left_32x32.png`
+- `corridor_wall_right_32x32.png`
+- `corridor_corner_tl_32x32.png`
+- `corridor_corner_tr_32x32.png`
+- `corridor_corner_bl_32x32.png`
+- `corridor_corner_br_32x32.png`
+- `corridor_corners_sheet.png`
+- `torch_32x32.png`
+- `corridor_shadow_overlay.png`
+
+Corridor width: 2–3 tiles
+
+---
+
+## 1️⃣3️⃣ Ambient Particles
+
+Path:
+
+
+assets/effects/particles/
+
+
+- `ember_01_4x4.png`
+- `ember_02_4x4.png`
+- `ash_01_4x4.png`
+
+Spawn: 18–28  
+Alpha: 20–40%  
+Upward drift  
+
+---
+
+## 1️⃣4️⃣ LLM Story Panel (Optional)
+
+Path:
+
+
+assets/ui/story/
+
+
+- `story_panel_bg.png`
+- `story_continue_button.png`
+
+If LLM unavailable → use static story text  
+Skip via Enter  
+
+---
+
+## 1️⃣5️⃣ Mandatory Asset Checklist (Biome 1 MVP)
+
+You MUST have:
+
+- Player sprites
+- Swarm
+- Flanker
+- Brute
+- Mini Boss
+- Elite overlay
+- Telegraph assets
+- Spawn portal
+- Slash VFX
+- Hit sparks
+- Lava tile
+- Doors
+- HUD
+- Damage numbers font
+
+If any missing → load placeholder, log warning, continue execution.
