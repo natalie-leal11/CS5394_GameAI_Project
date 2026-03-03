@@ -49,6 +49,45 @@ Game must NOT crash on missing asset.
 
 ---
 
+# RENDERING & ASSET LOADING STRICT RULES (MANDATORY)
+
+1) All loaded sprites MUST use per-pixel alpha:
+   - pygame.image.load(path).convert_alpha()
+   - convert_alpha() MUST only run after pygame.display.set_mode() is called.
+   - Missing asset fallback must also be convert_alpha().
+
+   1.1) asset_loader.py must expose a single canonical API for loading images/frames (e.g., load_image/load_animation),
+     and all code must use it (no direct pygame.image.load calls elsewhere).
+
+2) If an image lacks an alpha channel and renders with a solid background, apply colorkey:
+   - After convert() (not convert_alpha()), set_colorkey((255,255,255)) ONLY if needed.
+   - Do NOT modify the underlying asset files on disk.
+
+  2.1) Colorkey must be applied in the correct order and must avoid speckled halos:
+   - Correct pipeline order is: load → convert/convert_alpha → (optional colorkey) → scale.
+   - Do NOT apply colorkey after scaling.
+   - If colorkey produces speckled edges (anti-aliased white bleed), implement a hybrid loader:
+     (a) prefer convert_alpha() for true-alpha PNGs,
+     (b) otherwise fall back to convert() + set_colorkey((255,255,255), pygame.RLEACCEL),
+     (c) if speckles persist, treat near-white pixels as transparent using a threshold (e.g., RGB >= 245) before scaling.
+   - The hybrid loader must be centralized in asset_loader.py and used by all entities and animations.
+
+3) All render sizes MUST match contract sizes via scaling at load time (not per frame):
+   - Tile = 32x32
+   - Player = 64x64
+   - Enemies and bosses use their required sizes per spec
+   - Scaling MUST be driven by config constants (no scattered hardcoding).
+
+4) Entity positioning MUST use rects and MUST avoid default overlap:
+   - Each entity owns its own rect derived from its current sprite/image.
+   - Player spawn and enemy spawns must not share the same initial position.
+   - If spawn system not implemented yet, set deterministic non-overlapping defaults.
+
+5) Animation frame loading MUST be naturally sorted (0..10) not lexicographically (0,1,10,2).
+   - Log loaded frame paths and resulting scaled sizes in debug mode.
+
+---
+
 # 🧱 ARCHITECTURE REQUIREMENT (STRICT)
 
 Use modular architecture:
@@ -324,6 +363,27 @@ Wait for user confirmation.
 
 ---
 
+REPAIR MODE is NOT a standard phase and must only execute when explicitly triggered by user.
+
+# REPAIR MODE (IF PHASE 1–3 OUTPUT LOOKS WRONG)
+
+If the user reports:
+- sprites too large/small,
+- white backgrounds,
+- white halos / speckled artifact edges after colorkey,
+- entities overlapping,
+- wrong animation frames,
+
+Then generate a "PHASE 3.5 — Rendering & Asset Pipeline Fix" prompt that:
+- ONLY modifies asset_loader/config/entity rect initialization/spawn defaults,
+- DOES NOT add new gameplay systems,
+- Adds debug logs (frame paths, original size, scaled size, spawn positions),
+- Preserves all asset paths and folder names,
+- Produces a minimal visual validation (e.g., draw player at center, enemy offset).
+Then STOP and wait for confirmation.
+
+---
+
 # OUTPUT RULE
 
 Generate ONLY the coding prompt for the next phase.
@@ -331,5 +391,4 @@ Do not output explanations.
 Do not output analysis.
 Do not output entire game.
 
-Stop after PHASE 1.
-Wait.
+Stop after the phase you generate. Wait for confirmation.
