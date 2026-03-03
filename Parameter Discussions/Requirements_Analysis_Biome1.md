@@ -64,7 +64,7 @@ All assets are loaded using relative paths from project root.
 assets/
 ├── backgrounds/
 │ ├── main_menu_bg.png
-│ ├── controls_bg.png
+│ ├── controls_bg.pngR
 │ ├── settings_bg.png
 │ ├── story_intro_bg.png
 │ └── room0_bg.png
@@ -284,6 +284,67 @@ Keep under 150 words
 - On death (HP reaches 0):
   - current run save is deleted
   - next run begins from Room 0
+
+# 💀 PLAYER DEATH SEQUENCE CONTRACT (MANDATORY)
+
+Player death must be cinematic and time-controlled.
+It must NOT instantly reset the game.
+
+---
+
+## 1️⃣ Death Animation Duration
+
+- Player death animation duration: 3–4 seconds total.
+- Animation must play fully before any scene transition.
+- Animation speed must be slowed (dramatic effect).
+
+Player cannot move or attack during this period.
+
+---
+
+## 2️⃣ Enemy Behavior During Player Death
+
+When player HP reaches 0:
+
+- Enemies must immediately stop attacking.
+- Enemies may step backward slightly (retreat behavior).
+- No further damage is applied.
+- Combat logic pauses.
+
+This creates visual space for the death animation.
+
+---
+
+## 3️⃣ Death Freeze & Delay
+
+After death animation completes:
+
+- Freeze screen for 1–2 seconds.
+- Optional: fade screen slightly darker.
+
+---
+
+## 4️⃣ Game Over Message Timing
+
+- Display “Game Over” overlay.
+- Overlay must remain visible for 3–5 seconds.
+- Player input disabled during this period.
+
+---
+
+## 5️⃣ Scene Transition
+
+After Game Over delay:
+
+- Transition to Main Menu (StartScene).
+- New seed generated for next run.
+
+Total time from HP=0 → Main Menu:
+Minimum 6 seconds.
+Maximum 10 seconds.
+
+Instant reset is NOT allowed.
+
 
 ### 7.3 Pause Rule
 - Esc pauses the game at the current point.
@@ -3463,6 +3524,126 @@ All values below are for Biome 1 baseline.
 ### 1.3 Damage numbers
 - All damage values are integer.
 
+# ⚔ ENEMY–PLAYER SEPARATION & ATTACK RANGE CONTRACT (MANDATORY)
+
+Enemies must NOT visually overlap with the player during combat.
+
+## 1️⃣ Minimum Separation Distance
+
+Each enemy must maintain a minimum distance from the player:
+
+- Swarm: stop at 40 px
+- Flanker: stop at 50 px
+- Brute: stop at 60 px
+- Mini Boss: stop at 80 px
+
+Enemies must switch from "move" to "attack/windup" when inside their attack radius.
+
+Enemies must NOT continue moving once inside attack range.
+
+---
+
+## 2️⃣ Collision Resolution
+
+If enemy and player rectangles overlap:
+
+- Apply deterministic push-back resolution
+- Resolve overlap by moving enemy outward along collision normal
+- No random displacement allowed
+
+---
+
+## 3️⃣ Attack Trigger Rule
+
+Enemy attack may only trigger if:
+
+distance_to_player ≤ attack_radius  
+AND attack_cooldown_ready == True
+
+Enemy cannot deal damage by standing inside the player.
+
+---
+
+## 4️⃣ Contact Damage Rule
+
+If contact damage type enemy:
+
+- Damage applies at fixed interval (0.5 sec)
+- Damage interval must be frame-based
+- Overlap does NOT increase damage frequency
+
+---
+
+## 5️⃣ Rendering Order
+
+If overlap visually occurs momentarily:
+- Player sprite must render above enemy sprite
+- Mini Boss renders above all standard enemies
+
+# 🛡 ENEMY–ENEMY SEPARATION CONTRACT (MANDATORY)
+
+Enemies must NOT visually or physically overlap with each other at any time.
+
+---
+
+## 1️⃣ Minimum Separation Distance
+
+Each enemy must maintain a minimum spacing from other enemies:
+
+- Swarm ↔ Swarm: 30 px
+- Swarm ↔ Flanker: 35 px
+- Swarm ↔ Brute: 40 px
+- Flanker ↔ Flanker: 40 px
+- Flanker ↔ Brute: 45 px
+- Brute ↔ Brute: 50 px
+- Mini Boss ↔ Any: 80 px
+
+If distance_between_enemies < required_min_distance:
+- Apply deterministic separation push force.
+
+---
+
+## 2️⃣ Collision Resolution Rule
+
+When enemy rectangles overlap:
+
+- Resolve using push-back vector along collision normal.
+- Both enemies must be adjusted (not only one).
+- Resolution must be deterministic.
+- No random displacement allowed.
+
+Enemies must NEVER stack visually.
+
+---
+
+## 3️⃣ Movement Priority Rule
+
+Mini Boss has highest priority:
+- Smaller enemies must move away if collision occurs.
+
+Brute has higher priority than Flanker.
+Flanker has higher priority than Swarm.
+
+Lower-priority enemy yields position.
+
+---
+
+## 4️⃣ Death State Behavior
+
+When player dies:
+
+- Enemies must stop forward movement.
+- Separation logic must still remain active.
+- Enemies must not cluster on player body.
+
+---
+
+## 5️⃣ Rendering Rule
+
+Even if two enemies are close:
+- Their center points must never be identical.
+- Visible sprite stacking is not allowed.
+
 ---
 
 ## 2) Enemy HP (Biome 1)
@@ -4489,3 +4670,117 @@ You MUST have:
 - Damage numbers font
 
 If any missing → load placeholder, log warning, continue execution.
+
+Hi Cursor — I’m facing multiple issues with the Swarm enemy. Please address the following:
+
+1️⃣ Swarm Enemy Overlaps Player (No Separation)
+
+Problem:
+
+Swarm enemy overlaps the player sprite.
+
+It does not maintain proper minimum distance.
+
+It feels like it sits inside the player.
+
+Required Fix:
+
+Enforce minimum separation distance between swarm enemy and player.
+
+Swarm enemy should stop moving when within a small radius (e.g., 40–50 px).
+
+Do not allow rect overlap with player.
+
+Implement simple pushback or collision resolution if overlapping.
+
+Example idea:
+
+if swarm.rect.colliderect(player.rect):
+    resolve_overlap()
+
+Or enforce:
+
+if distance_to_player <= stop_radius:
+    stop_moving()
+2️⃣ Swarm Enemy Not Taking Damage
+
+Problem:
+
+When I attack left or right, swarm enemy does not lose HP.
+
+Damage detection seems inconsistent.
+
+Likely hitbox too small or wrong rect.
+
+Required Fix:
+
+Increase swarm enemy hitbox rectangle.
+
+Ensure damage uses rect.colliderect(attack_rect) only.
+
+No angle-based filtering.
+
+If attack_rect overlaps enemy.rect → apply damage.
+
+Please verify:
+
+if attack_rect.colliderect(swarm.rect):
+    swarm.take_damage(damage)
+3️⃣ Swarm Teleports to Opposite Side During Attack
+
+Problem:
+
+If swarm is on left and I attack left,
+
+It suddenly appears on right side.
+
+This causes attack to miss.
+
+This suggests:
+
+Position update happening after attack
+
+Or direction-based reposition logic bug
+
+Or incorrect rect center assignment
+
+Required Fix:
+
+Prevent swarm from switching sides instantly.
+
+Movement should be continuous.
+
+Remove any forced side-flipping logic.
+
+Ensure position updates occur BEFORE collision checks.
+
+Add debug logging for:
+
+Swarm position before update
+
+Swarm position after update
+
+Attack rect coordinates
+
+4️⃣ Debug Mode Request
+
+Please temporarily:
+
+Draw swarm.rect in green
+
+Draw attack_rect in red
+
+Print HP change when damage applied
+
+This will help visually confirm collisions.
+
+🎯 Expected Result
+
+Swarm maintains minimum distance.
+
+Swarm does not overlap player.
+
+Swarm takes damage when in correct attack rectangle.
+
+Swarm does not teleport or flip sides during attack.
+

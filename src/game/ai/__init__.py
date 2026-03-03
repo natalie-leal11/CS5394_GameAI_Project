@@ -1,1 +1,0 @@
-# AI Director and difficulty
