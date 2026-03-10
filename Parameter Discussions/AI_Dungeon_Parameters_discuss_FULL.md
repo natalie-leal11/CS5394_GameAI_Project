@@ -772,7 +772,7 @@ Purpose: Forces target prioritization.
 HEAVY ENEMIES
  
 Control space and limit movement.
-## 3A. Standard Heavy
+## 3A. Standard Heavy (Brute)
 Visual Identity
 •	Thick armored body
 •	Large hammer
