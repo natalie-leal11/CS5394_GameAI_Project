@@ -60,7 +60,7 @@ class MiniBoss:
         if self._animations_loaded:
             return
         self._animations_loaded = True
-        base_path = "assets/entities/enemies/mini_boss"
+        base_path = "assets/entities/enemies/mini_boss_1"
         idle_frames: list[pygame.Surface] = []
         for state in MINI_BOSS_STATES:
             folder = f"{base_path}/{state}"

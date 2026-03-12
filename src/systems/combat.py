@@ -22,6 +22,9 @@ from game.config import (
     ENEMY_BRUTE_ATTACK_RADIUS,
     ENEMY_BRUTE_ATTACK_OFFSET,
     ENEMY_BRUTE_ATTACK_COOLDOWN_SEC,
+    ENEMY_HEAVY_ATTACK_RADIUS,
+    ENEMY_HEAVY_ATTACK_OFFSET,
+    ENEMY_HEAVY_ATTACK_COOLDOWN_SEC,
     MINI_BOSS_ATTACK_RADIUS,
     MINI_BOSS_ATTACK_OFFSET,
     MINI_BOSS_ATTACK_COOLDOWN_SEC,
@@ -65,12 +68,14 @@ def _enemy_hurtbox_rect(enemy) -> pygame.Rect:
 
 def _enemy_attack_params(enemy_type: str) -> tuple[float, float, float]:
     """Return (radius, offset, cooldown_sec) for melee attack."""
-    if enemy_type == "mini_boss":
+    if enemy_type in ("mini_boss", "mini_boss_2"):
         return MINI_BOSS_ATTACK_RADIUS, MINI_BOSS_ATTACK_OFFSET, MINI_BOSS_ATTACK_COOLDOWN_SEC
     if enemy_type == "brute":
         return ENEMY_BRUTE_ATTACK_RADIUS, ENEMY_BRUTE_ATTACK_OFFSET, ENEMY_BRUTE_ATTACK_COOLDOWN_SEC
     if enemy_type == "flanker":
         return ENEMY_FLANKER_ATTACK_RADIUS, ENEMY_FLANKER_ATTACK_OFFSET, ENEMY_FLANKER_ATTACK_COOLDOWN_SEC
+    if enemy_type == "heavy":
+        return ENEMY_HEAVY_ATTACK_RADIUS, ENEMY_HEAVY_ATTACK_OFFSET, ENEMY_HEAVY_ATTACK_COOLDOWN_SEC
     return ENEMY_SWARM_ATTACK_RADIUS, ENEMY_SWARM_ATTACK_OFFSET, ENEMY_SWARM_ATTACK_COOLDOWN_SEC
 
 
@@ -264,7 +269,7 @@ def apply_enemy_attacks(player, enemies: list, dt: float) -> List[DamageEvent]:
             continue
         enemy_type = getattr(enemy, "enemy_type", "swarm")
         state = getattr(enemy, "state", "")
-        attacking = state == "attack" or (enemy_type == "mini_boss" and state in ("attack_01", "attack_02"))
+        attacking = state == "attack" or (enemy_type in ("mini_boss", "mini_boss_2") and state in ("attack_01", "attack_02"))
         if not attacking:
             continue
         radius, offset, cooldown = _enemy_attack_params(enemy_type)

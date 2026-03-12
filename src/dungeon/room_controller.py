@@ -1,7 +1,7 @@
 # Phase 7: Current room, one-at-a-time generation, doors for current room.
 
 from game.config import SEED
-from dungeon.room import Room, RoomType, generate_room, wall_border_thickness
+from dungeon.room import Room, RoomType, generate_room, wall_border_thickness, total_campaign_rooms
 from dungeon.door_system import DoorSystem, Door, DoorState
 from dungeon.hazard_system import HazardSystem
 
@@ -37,7 +37,7 @@ def _place_doors_for_room(room: Room) -> list[Door]:
 
 
 class RoomController:
-    """Holds current room (0-7), generates one at a time, manages doors and hazards."""
+    """Holds current room, generates one at a time, manages doors and hazards. Supports full campaign (0-15) or Biome 1 only (0-7)."""
 
     def __init__(self, seed: int | None = None) -> None:
         self._seed = seed if seed is not None else SEED
@@ -62,16 +62,17 @@ class RoomController:
     def hazard_system(self) -> HazardSystem:
         return self._hazard_system
 
-    def load_room(self, room_index: int) -> Room:
-        """Generate and set room 0-7. Deterministic. Returns the room."""
-        if room_index < 0 or room_index > 7:
-            raise ValueError("Phase 7: only rooms 0-7")
-        room = generate_room(room_index, self._seed)
+    def load_room(self, campaign_index: int) -> Room:
+        """Generate and set room by campaign index. Deterministic. Returns the room."""
+        total = total_campaign_rooms()
+        if campaign_index < 0 or campaign_index >= total:
+            raise ValueError(f"Campaign index must be 0-{total - 1}, got {campaign_index}")
+        room = generate_room(campaign_index, self._seed)
         self._current_room = room
-        self._current_room_index = room_index
+        self._current_room_index = campaign_index
         doors = _place_doors_for_room(room)
         self._door_system.set_doors(doors)
-        if room_index == 0:
+        if campaign_index == 0:
             self._door_system.open_all()  # Start room: doors open immediately
         elif room.room_type == RoomType.SAFE:
             self._door_system.open_all()  # Safe room: no combat, exit open so player can leave

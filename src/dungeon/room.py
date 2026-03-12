@@ -13,7 +13,16 @@ from game.config import (
     HAZARD_SLOW_MIN_FRACTION,
     HAZARD_SLOW_MAX_FRACTION,
     BEGINNER_TEST_MODE,
+    USE_BIOME2,
+    BIOME1_ROOM_COUNT,
+    BIOME2_ROOM_COUNT,
+    BIOME2_START_INDEX,
 )
+
+
+def total_campaign_rooms() -> int:
+    """Total rooms in the campaign. 16 when USE_BIOME2 (full campaign), else 8 (Biome 1 only)."""
+    return BIOME1_ROOM_COUNT + BIOME2_ROOM_COUNT if USE_BIOME2 else BIOME1_ROOM_COUNT
 
 
 class RoomType(str, Enum):
@@ -259,24 +268,40 @@ class Room:
         return out
 
 
-def generate_room(room_index: int, seed: int | None = None) -> Room:
-    """Generate one room deterministically. Room index 0-7 only. Grid size = viewport (fills screen)."""
+def generate_room(campaign_index: int, seed: int | None = None) -> Room:
+    """
+    Generate one room deterministically by campaign index.
+    Campaign 0-7: Biome 1 rooms. Campaign 8-15: Biome 2 rooms (when USE_BIOME2).
+    """
     if seed is None:
         seed = SEED
-    if room_index < 0 or room_index > 7:
-        raise ValueError("Phase 7: only rooms 0-7")
-    order = _room_order_biome1(seed)
-    room_type = order[room_index]
+    total = total_campaign_rooms()
+    if campaign_index < 0 or campaign_index >= total:
+        raise ValueError(f"Campaign index must be 0-{total - 1}, got {campaign_index}")
+
+    if campaign_index < BIOME2_START_INDEX:
+        # Biome 1
+        order = _room_order_biome1(seed)
+        room_type = order[campaign_index]
+        biome_index = 1
+    else:
+        # Biome 2
+        from dungeon.biome2_sequence import room_order_biome2
+        order = room_order_biome2(seed)
+        local_idx = campaign_index - BIOME2_START_INDEX
+        room_type = order[local_idx]
+        biome_index = 2
+
     width, height = _room_grid_size()
-    grid = _make_tile_grid(width, height, room_type, room_index, seed)
+    grid = _make_tile_grid(width, height, room_type, campaign_index, seed)
     border = wall_border_thickness(room_type)
     spawn_tile = _choose_spawn_tile(width, height, grid, border)
-    total = width * height
+    total_cells = width * height
     hazard_count = sum(1 for row in grid for c in row if c in (TILE_LAVA, TILE_SLOW))
-    hazard_percentage = hazard_count / total if total else 0.0
+    hazard_percentage = hazard_count / total_cells if total_cells else 0.0
     return Room(
-        room_index=room_index,
-        biome_index=1,
+        room_index=campaign_index,
+        biome_index=biome_index,
         room_type=room_type,
         hazard_percentage=hazard_percentage,
         width=width,
