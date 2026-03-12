@@ -1,6 +1,6 @@
 # Biome 2 - Rooms, Enemies, Spawn Rules & Healing (Complete Reference)
 
-This document lists **every room**, what is implemented in each, enemy types, spawn rules, safe room behaviorr, and all healing values. Use it as the single reference for Biome 2 content.
+This document lists **every room**, what is implemented in each, enemy types, spawn rules, safe room behavior, and all healing values. Use it as the single reference for Biome 2 content.
 
 ---
 
