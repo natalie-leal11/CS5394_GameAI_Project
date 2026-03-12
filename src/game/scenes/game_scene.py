@@ -40,7 +40,9 @@ from entities.player import Player
 from entities.swarm import Swarm
 from entities.flanker import Flanker
 from entities.brute import Brute
+from entities.heavy import Heavy
 from entities.mini_boss import MiniBoss
+from entities.mini_boss_2 import MiniBoss2
 from entities.training_dummy import TrainingDummy
 from entities.enemy_base import enemy_min_separation, enemy_type_priority
 from systems.combat import apply_player_attacks, apply_enemy_attacks, DamageEvent
@@ -55,8 +57,9 @@ from systems.vfx import VfxManager
 from systems.movement import apply_player_movement
 from game.asset_loader import load_image
 from dungeon.room_controller import RoomController
-from dungeon.room import RoomType, TILE_FLOOR, TILE_LAVA, TILE_SLOW
+from dungeon.room import RoomType, TILE_FLOOR, TILE_LAVA, TILE_SLOW, total_campaign_rooms
 from dungeon.door_system import DoorState
+from dungeon.biome2_rooms import get_biome2_spawn_specs, get_biome2_spawn_pattern
 
 # Requirements_Analysis_Biome1.md / REBUILT: gameplay background (Room 0 / arena).
 GAMEPLAY_BG_PATH = "assets/backgrounds/room0_bg.png"
@@ -327,7 +330,11 @@ class GameScene(BaseScene):
 
             # Spawn specs: (enemy_cls, elite, start_time_sec, telegraph_sec or None)
             spawn_specs: list[tuple] = []
-            if BEGINNER_TEST_MODE:
+            if room_idx >= 8:  # Biome 2 rooms (campaign indices 8-15) use MiniBoss2
+                spawn_specs = get_biome2_spawn_specs(
+                    room_idx - 8, rtype, Swarm, Flanker, Brute, Heavy, MiniBoss2
+                )
+            elif BEGINNER_TEST_MODE:
                 if room_idx == 0 or rtype in (RoomType.START, RoomType.SAFE):
                     pass
                 elif room_idx == 1:
@@ -368,7 +375,31 @@ class GameScene(BaseScene):
 
             # Advanced spawn: spread / triangle / ambush by room type; world_pos per slot.
             positions_world: list[tuple[float, float]] = []
-            if not spawn_specs:
+            if room_idx >= 8:  # Biome 2 rooms
+                pattern = get_biome2_spawn_pattern(rtype)
+                if pattern == "triangle":
+                    positions_world = spawn_triangle(room, player_center, is_elite=True, rng=rng, door_positions=door_positions)
+                elif pattern == "ambush":
+                    positions_world = spawn_ambush(room, player_center, len(spawn_specs), rng=rng)
+                elif pattern == "single":
+                    if len(spawn_specs) == 1:
+                        xy = generate_valid_spawn_position(room, player_center, [], is_elite=False, rng=rng)
+                        positions_world = [xy]
+                    else:
+                        # Biome 2 mini boss with adds: one position per spawn (mini boss + adds)
+                        positions_world = []
+                        for _ in range(len(spawn_specs)):
+                            xy = generate_valid_spawn_position(
+                                room, player_center, positions_world, is_elite=False, rng=rng
+                            )
+                            positions_world.append(xy)
+                elif pattern == "spread":
+                    positions_world = spawn_spread(
+                        room, player_center, len(spawn_specs),
+                        is_elite=(rtype == RoomType.ELITE),
+                        rng=rng, door_positions=door_positions,
+                    )
+            elif not spawn_specs:
                 pass
             elif rtype == RoomType.ELITE:
                 positions_world = spawn_triangle(room, player_center, is_elite=True, rng=rng, door_positions=door_positions)
@@ -586,7 +617,7 @@ class GameScene(BaseScene):
                 self._resolve_entity_wall_collision(enemy, prev_enemy_pos, room)
         # Phase 6: detect mini boss death after update (before removing from list)
         for e in self._enemies:
-            if isinstance(e, MiniBoss) and getattr(e, "inactive", False):
+            if isinstance(e, (MiniBoss, MiniBoss2)) and getattr(e, "inactive", False):
                 self._mini_boss_death_pos = e.world_pos
                 break
         self._enemies = [e for e in self._enemies if not getattr(e, "inactive", False)]
@@ -700,14 +731,12 @@ class GameScene(BaseScene):
                     next_idx = target_room_index
                     break
             if next_idx is not None:
-                # Mini Boss room (7) has no room 8; per Requirements, beating the
-                # mini boss ends the biome. Use the exit door as "run complete" and
-                # return the player to the main menu.
-                if self._room_controller.current_room_index == 7:
-                    # Simple end-of-run behaviour: go back to StartScene.
+                # Last campaign room: beating the mini boss ends the run.
+                total = total_campaign_rooms()
+                if self._room_controller.current_room_index == total - 1:
                     self.scene_manager.switch_to_start()
                     return
-                if next_idx <= 7:
+                if next_idx < total:
                     self._room_controller.load_room(next_idx)
                     room = self._room_controller.current_room
                     wx, wy = room.world_pos_for_tile(room.spawn_tile[0], room.spawn_tile[1])
@@ -1206,7 +1235,7 @@ class GameScene(BaseScene):
             if getattr(enemy, "is_training_dummy", False):
                 continue
             # Mini boss already has a dedicated HUD bar at top; skip its per-sprite bar.
-            if isinstance(enemy, MiniBoss):
+            if isinstance(enemy, (MiniBoss, MiniBoss2)):
                 continue
             max_hp = float(getattr(enemy, "max_hp", 0.0))
             if max_hp <= 0.0:
@@ -1386,7 +1415,7 @@ class GameScene(BaseScene):
             else:
                 pygame.draw.circle(screen, (255, 220, 100), (sx, sy), half - 4)
         # Phase 6: mini boss health bar (top-center, screen-space)
-        mini_boss = next((e for e in self._enemies if isinstance(e, MiniBoss)), None)
+        mini_boss = next((e for e in self._enemies if isinstance(e, (MiniBoss, MiniBoss2))), None)
         if mini_boss is not None and not getattr(mini_boss, "inactive", False):
             self._ensure_mini_boss_bar_loaded()
             if self._mini_boss_bar_frame is not None and self._mini_boss_bar_fill is not None:

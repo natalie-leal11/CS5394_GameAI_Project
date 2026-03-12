@@ -7,18 +7,23 @@ from game.config import (
     ENEMY_SWARM_SIZE,
     ENEMY_FLANKER_SIZE,
     ENEMY_BRUTE_SIZE,
+    ENEMY_HEAVY_SIZE,
     ENEMY_SWARM_BASE_HP,
     ENEMY_FLANKER_BASE_HP,
     ENEMY_BRUTE_BASE_HP,
+    ENEMY_HEAVY_BASE_HP,
     ENEMY_SWARM_BASE_DAMAGE,
     ENEMY_FLANKER_BASE_DAMAGE,
     ENEMY_BRUTE_BASE_DAMAGE,
+    ENEMY_HEAVY_BASE_DAMAGE,
     ENEMY_SWARM_MOVE_SPEED,
     ENEMY_FLANKER_MOVE_SPEED,
     ENEMY_BRUTE_MOVE_SPEED,
+    ENEMY_HEAVY_MOVE_SPEED,
     ENEMY_SWARM_STOP_DISTANCE,
     ENEMY_FLANKER_STOP_DISTANCE,
     ENEMY_BRUTE_STOP_DISTANCE,
+    ENEMY_HEAVY_STOP_DISTANCE,
     ENEMY_CONTACT_DAMAGE_INTERVAL_SEC,
     ENEMY_ELITE_HP_MULT,
     ENEMY_ELITE_DAMAGE_MULT,
@@ -36,19 +41,24 @@ from game.config import (
     ENEMY_BRUTE_ATTACK_RADIUS,
     ENEMY_BRUTE_ATTACK_OFFSET,
     ENEMY_BRUTE_ATTACK_COOLDOWN_SEC,
+    ENEMY_HEAVY_ATTACK_RADIUS,
+    ENEMY_HEAVY_ATTACK_OFFSET,
+    ENEMY_HEAVY_ATTACK_COOLDOWN_SEC,
 )
 from game.asset_loader import load_animation, load_image
 from systems.animation import AnimationState
 from systems.collisions import hitbox_overlap
 
 
-ENEMY_TYPES = ("swarm", "flanker", "brute")
+ENEMY_TYPES = ("swarm", "flanker", "brute", "heavy")
 
 _TYPE_PRIORITY: dict[str, int] = {
     "swarm": 0,
     "flanker": 1,
     "brute": 2,
-    "mini_boss": 3,
+    "heavy": 3,
+    "mini_boss": 4,
+    "mini_boss_2": 4,
 }
 
 _SEPARATION_DIST: dict[tuple[str, str], float] = {
@@ -61,13 +71,33 @@ _SEPARATION_DIST: dict[tuple[str, str], float] = {
     ("flanker", "brute"): 45.0,
     ("brute", "flanker"): 45.0,
     ("brute", "brute"): 50.0,
+    ("swarm", "heavy"): 42.0,
+    ("heavy", "swarm"): 42.0,
+    ("flanker", "heavy"): 48.0,
+    ("heavy", "flanker"): 48.0,
+    ("brute", "heavy"): 52.0,
+    ("heavy", "brute"): 52.0,
+    ("heavy", "heavy"): 55.0,
     ("swarm", "mini_boss"): 50.0,
     ("mini_boss", "swarm"): 50.0,
     ("flanker", "mini_boss"): 55.0,
     ("mini_boss", "flanker"): 55.0,
     ("brute", "mini_boss"): 60.0,
     ("mini_boss", "brute"): 60.0,
+    ("heavy", "mini_boss"): 62.0,
+    ("mini_boss", "heavy"): 62.0,
     ("mini_boss", "mini_boss"): 70.0,
+    ("swarm", "mini_boss_2"): 50.0,
+    ("mini_boss_2", "swarm"): 50.0,
+    ("flanker", "mini_boss_2"): 55.0,
+    ("mini_boss_2", "flanker"): 55.0,
+    ("brute", "mini_boss_2"): 60.0,
+    ("mini_boss_2", "brute"): 60.0,
+    ("heavy", "mini_boss_2"): 62.0,
+    ("mini_boss_2", "heavy"): 62.0,
+    ("mini_boss", "mini_boss_2"): 70.0,
+    ("mini_boss_2", "mini_boss"): 70.0,
+    ("mini_boss_2", "mini_boss_2"): 70.0,
 }
 
 
@@ -90,6 +120,8 @@ def _enemy_size_for_type(enemy_type: str) -> Tuple[int, int]:
         return ENEMY_BRUTE_SIZE
     if enemy_type == "flanker":
         return ENEMY_FLANKER_SIZE
+    if enemy_type == "heavy":
+        return ENEMY_HEAVY_SIZE
     return ENEMY_SWARM_SIZE
 
 
@@ -98,6 +130,8 @@ def _enemy_stats_for_type(enemy_type: str) -> Tuple[float, float, float]:
         return ENEMY_BRUTE_BASE_HP, ENEMY_BRUTE_BASE_DAMAGE, ENEMY_BRUTE_MOVE_SPEED
     if enemy_type == "flanker":
         return ENEMY_FLANKER_BASE_HP, ENEMY_FLANKER_BASE_DAMAGE, ENEMY_FLANKER_MOVE_SPEED
+    if enemy_type == "heavy":
+        return ENEMY_HEAVY_BASE_HP, ENEMY_HEAVY_BASE_DAMAGE, ENEMY_HEAVY_MOVE_SPEED
     return ENEMY_SWARM_BASE_HP, ENEMY_SWARM_BASE_DAMAGE, ENEMY_SWARM_MOVE_SPEED
 
 
@@ -107,6 +141,8 @@ def _enemy_attack_params(enemy_type: str) -> Tuple[float, float, float]:
         return ENEMY_BRUTE_ATTACK_RADIUS, ENEMY_BRUTE_ATTACK_OFFSET, ENEMY_BRUTE_ATTACK_COOLDOWN_SEC
     if enemy_type == "flanker":
         return ENEMY_FLANKER_ATTACK_RADIUS, ENEMY_FLANKER_ATTACK_OFFSET, ENEMY_FLANKER_ATTACK_COOLDOWN_SEC
+    if enemy_type == "heavy":
+        return ENEMY_HEAVY_ATTACK_RADIUS, ENEMY_HEAVY_ATTACK_OFFSET, ENEMY_HEAVY_ATTACK_COOLDOWN_SEC
     return ENEMY_SWARM_ATTACK_RADIUS, ENEMY_SWARM_ATTACK_OFFSET, ENEMY_SWARM_ATTACK_COOLDOWN_SEC
 
 
@@ -115,6 +151,8 @@ def _enemy_stop_distance(enemy_type: str) -> float:
         return float(ENEMY_BRUTE_STOP_DISTANCE)
     if enemy_type == "flanker":
         return float(ENEMY_FLANKER_STOP_DISTANCE)
+    if enemy_type == "heavy":
+        return float(ENEMY_HEAVY_STOP_DISTANCE)
     return float(ENEMY_SWARM_STOP_DISTANCE)
 
 

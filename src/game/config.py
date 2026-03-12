@@ -35,20 +35,24 @@ FINAL_BOSS_SIZE = (128, 128)
 ENEMY_SWARM_SIZE = (60, 60)
 ENEMY_FLANKER_SIZE = (48, 48)
 ENEMY_BRUTE_SIZE = BRUTE_SIZE  # 80x80 per master prompt
+ENEMY_HEAVY_SIZE = (88, 88)   # Biome 2: Heavy armored
 
 # Base stats (Biome 1 baseline; match Requirements tables).
 ENEMY_SWARM_BASE_HP = 30      # Melee Grunt
 ENEMY_FLANKER_BASE_HP = 22    # Fast Flanker
 ENEMY_BRUTE_BASE_HP = 50      # Brute
+ENEMY_HEAVY_BASE_HP = 60      # Biome 2: Heavy armored
 
 ENEMY_SWARM_BASE_DAMAGE = 10  # Melee Grunt basic swing
 ENEMY_FLANKER_BASE_DAMAGE = 8  # Fast Flanker quick strike
 ENEMY_BRUTE_BASE_DAMAGE = 14   # Brute heavy hit
+ENEMY_HEAVY_BASE_DAMAGE = 16   # Biome 2: Heavy armored
 
 # Minimum separation / attack radius (px) — enemies must not visually overlap player.
 ENEMY_SWARM_STOP_DISTANCE = 40
 ENEMY_FLANKER_STOP_DISTANCE = 50
 ENEMY_BRUTE_STOP_DISTANCE = 60
+ENEMY_HEAVY_STOP_DISTANCE = 64
 
 # Enemy melee attack hitbox radii/offsets and cooldowns (Biome 1).
 ENEMY_SWARM_ATTACK_RADIUS = 20.0
@@ -63,6 +67,10 @@ ENEMY_BRUTE_ATTACK_RADIUS = 26.0
 ENEMY_BRUTE_ATTACK_OFFSET = 22.0
 ENEMY_BRUTE_ATTACK_COOLDOWN_SEC = 2.2
 
+ENEMY_HEAVY_ATTACK_RADIUS = 28.0
+ENEMY_HEAVY_ATTACK_OFFSET = 24.0
+ENEMY_HEAVY_ATTACK_COOLDOWN_SEC = 2.4
+
 # Radius (px) of the visible hit zone around each enemy; player inside this circle when attacking deals damage. Large so hits always register.
 ENEMY_HIT_ZONE_RADIUS = 400
 
@@ -70,6 +78,7 @@ ENEMY_HIT_ZONE_RADIUS = 400
 ENEMY_SWARM_MOVE_SPEED = 100   # Melee Grunt
 ENEMY_FLANKER_MOVE_SPEED = 260  # Fast Flanker
 ENEMY_BRUTE_MOVE_SPEED = 120    # Heavy/Brute
+ENEMY_HEAVY_MOVE_SPEED = 100    # Biome 2: Heavy armored (slow)
 
 # Contact damage every 0.5s while overlapping.
 ENEMY_CONTACT_DAMAGE_INTERVAL_SEC = 0.5
@@ -193,6 +202,15 @@ ROOM_SIZE_MINI_BOSS = (16, 16)
 # Set True to enable Phase 7 dungeon (rooms 0-7, doors, hazards). False = single arena for tests.
 USE_PHASE7_DUNGEON = True
 
+# Campaign mode: when True, full campaign (Biome 1 rooms 0-7, then Biome 2 rooms 8-15).
+# When False, Biome 1 only (8 rooms) for debugging.
+USE_BIOME2 = True  # Set True for full campaign; False for Biome 1 only
+
+# Campaign structure (used when USE_BIOME2=True).
+BIOME1_ROOM_COUNT = 8
+BIOME2_ROOM_COUNT = 8
+BIOME2_START_INDEX = 8  # Campaign index 8 = first Biome 2 room
+
 # --- Biome 1 Beginner Test Mode (promptforprompt/Biome1_Beginner_Test_Mode_Spec.md) ---
 # Temporary: fixed room order, reduced difficulty, deterministic. Set False to revert to normal.
 BEGINNER_TEST_MODE = True
@@ -202,4 +220,5 @@ if BEGINNER_TEST_MODE:
     ENEMY_SWARM_MOVE_SPEED = 100   # Melee Grunt (fixed 100 px/sec)
     ENEMY_FLANKER_MOVE_SPEED = int(_player_speed * 0.85)  # Fast Flanker
     ENEMY_BRUTE_MOVE_SPEED = int(_player_speed * 0.65)   # Elite Guardian
+    ENEMY_HEAVY_MOVE_SPEED = int(_player_speed * 0.55)   # Biome 2 Heavy (slower)
     MINI_BOSS_MOVE_SPEED = int(_player_speed * 0.75)
