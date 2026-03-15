@@ -70,12 +70,16 @@ class Player:
         self.state = "idle"
         self.facing = (1, 0)
         self.hp = float(PLAYER_BASE_HP)
-        self.base_max_hp = float(PLAYER_BASE_HP)  # Never increased; used for Safe Room heal and overheal cap
-        self.max_hp = float(PLAYER_BASE_HP)       # Kept equal to base_max_hp for compatibility
+        self.base_max_hp = float(PLAYER_BASE_HP)  # Increased by Biome 3 Safe Room Health upgrade
+        self.max_hp = float(PLAYER_BASE_HP)       # Current max HP (cap for overheal)
         self.inactive = False
         self.velocity_xy = (0.0, 0.0)
         # Attack stats / scaling
         self.attack_level = 0  # increases later via pickups
+        # Biome 3/4 Safe Room upgrade multipliers (1.0 = no upgrade)
+        self.move_speed_mult = 1.0   # +10% from Speed Boost
+        self.attack_damage_mult = 1.0  # +12% from Attack Boost
+        self.damage_taken_mult = 1.0   # Defense: -12% incoming = 0.88
         # Dash
         self.dash_active = False
         self.dash_timer = 0.0
@@ -417,7 +421,8 @@ class Player:
 
     @property
     def attack_multiplier(self) -> float:
-        return 1.0 + PLAYER_ATTACK_LEVEL_STEP * max(0, int(self.attack_level))
+        level_mult = 1.0 + PLAYER_ATTACK_LEVEL_STEP * max(0, int(self.attack_level))
+        return level_mult * getattr(self, "attack_damage_mult", 1.0)
 
     def is_short_attack_active(self) -> bool:
         """True when short attack is in its active frames (for hitbox checks)."""

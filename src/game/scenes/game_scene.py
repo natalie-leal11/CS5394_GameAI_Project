@@ -30,24 +30,52 @@ from game.config import (
     LAVA_DAMAGE_PER_SECOND,
     SLOW_TILE_SPEED_FACTOR,
     USE_PHASE7_DUNGEON,
+    BIOME3_START_INDEX,
+    BIOME4_START_INDEX,
+    START_ROOM_INDEX,
     SAFE_ROOM_HEAL_PERCENT,
     SAFE_ROOM_OVERHEAL_CAP_RATIO,
     HEAL_DROP_CHANCE,
     BEGINNER_TEST_MODE,
     PLAYER_BASE_HP,
+    BIOME4_BOSS_UI_ANCHOR_X,
+    BIOME4_BOSS_UI_ANCHOR_Y,
+    BIOME4_BOSS_UI_ANCHOR_W,
+    BIOME4_BOSS_UI_ANCHOR_H,
+    FINAL_BOSS_REWARD_HEAL_PERCENT,
+    FINAL_BOSS_CONTACT_DAMAGE,
+    FINAL_BOSS_CONTACT_DAMAGE_REVIVE,
+    BIOME4_BOSS_TELEGRAPH_METEOR_SEC,
+    FINAL_BOSS_METEOR_DAMAGE,
+    FINAL_BOSS_REVIVE_MESSAGE_DURATION_SEC,
 )
+
+# Biome 3 Room 21 safe room: campaign index for upgrade panel (deterministic 3 choices, pick 1).
+BIOME3_SAFE_ROOM_INDEX = 21
+# Biome 4 Room 28 safe room: 4 options, choose exactly 2.
+BIOME4_SAFE_ROOM_INDEX = 28
+# Upgrade effects (Phase 2 safe room extension).
+SAFE_ROOM_UPGRADE_HEALTH_MULT = 1.20   # +20% max HP
+SAFE_ROOM_UPGRADE_SPEED_MULT = 1.10   # +10% movement speed
+SAFE_ROOM_UPGRADE_ATTACK_MULT = 1.12  # +12% attack damage
+SAFE_ROOM_UPGRADE_DEFENCE_MULT = 0.88  # -12% incoming damage
 from entities.player import Player
 from entities.swarm import Swarm
 from entities.flanker import Flanker
 from entities.brute import Brute
 from entities.heavy import Heavy
+from entities.ranged import Ranged
 from entities.mini_boss import MiniBoss
 from entities.mini_boss_2 import MiniBoss2
+from entities.biome3_miniboss import Biome3MiniBoss, preload_biome3_miniboss_animations
+from entities.final_boss import FinalBoss, preload_final_boss_animations
 from entities.training_dummy import TrainingDummy
-from entities.enemy_base import enemy_min_separation, enemy_type_priority
-from systems.combat import apply_player_attacks, apply_enemy_attacks, DamageEvent
+from entities import enemy_base as enemy_base_module
+from entities.enemy_base import enemy_min_separation, enemy_type_priority, preload_enemy_animations
+from systems.combat import apply_player_attacks, apply_enemy_attacks, apply_projectile_hits, DamageEvent
 from systems.spawn_system import SpawnSystem
 from systems.spawn_helper import (
+    ensure_valid_spawn_position,
     generate_valid_spawn_position,
     spawn_spread,
     spawn_triangle,
@@ -60,6 +88,26 @@ from dungeon.room_controller import RoomController
 from dungeon.room import RoomType, TILE_FLOOR, TILE_LAVA, TILE_SLOW, total_campaign_rooms
 from dungeon.door_system import DoorState
 from dungeon.biome2_rooms import get_biome2_spawn_specs, get_biome2_spawn_pattern
+from dungeon.biome3_rooms import get_biome3_spawn_specs, get_biome3_spawn_pattern
+from dungeon.biome4_rooms import (
+    get_biome4_spawn_specs,
+    get_biome4_spawn_pattern,
+    BIOME4_AMBUSH_RADIUS_PX,
+    BIOME4_TRIANGLE_OFFSET_PX,
+    BIOME4_FINAL_BOSS_SPAWN_DELAY_SEC,
+)
+from dungeon.biome4_visuals import (
+    get_biome4_background,
+    get_biome4_prop_placements,
+    SOLID_PROP_INDICES,
+    Biome4Visuals,
+    load_boss_telegraph,
+    load_boss_fx_teleport,
+    load_boss_fx_spawn,
+    load_boss_fx_death,
+    load_boss_fx_image,
+    load_boss_projectile,
+)
 
 # Requirements_Analysis_Biome1.md / REBUILT: gameplay background (Room 0 / arena).
 GAMEPLAY_BG_PATH = "assets/backgrounds/room0_bg.png"
@@ -96,6 +144,7 @@ class GameScene(BaseScene):
         self._camera_target_world = (LOGICAL_W / 2.0, LOGICAL_H / 2.0)
         self._player: Player | None = None
         self._enemies: list = []
+        self._projectiles: list = []
         self._spawned_enemies = False  # Tracks whether initial spawn slots have been set up.
         self._dash_request = False
         self._attack_short_request = False
@@ -118,6 +167,46 @@ class GameScene(BaseScene):
         # Phase 6: mini boss health bar assets (lazy-loaded)
         self._mini_boss_bar_frame: pygame.Surface | None = None
         self._mini_boss_bar_fill: pygame.Surface | None = None
+        # Phase 3: Final Boss (Room 29) spawn and victory
+        self._final_boss_spawn_timer: float | None = None
+        self._final_boss_spawned = False
+        self._room_time = 0.0
+        self._meteor_impacts: list = []
+        self._final_boss_contact_timer = 0.0
+        self._victory_phase = False
+        self._victory_timer: float = 0.0
+        self._boss_ui_frame: pygame.Surface | None = None
+        self._boss_ui_fill: pygame.Surface | None = None
+        self._boss_name_banner: pygame.Surface | None = None
+        self._victory_bg: pygame.Surface | None = None
+        self._victory_banner: pygame.Surface | None = None
+        # Boss telegraphs and VFX (loaded by _ensure_boss_fx_loaded)
+        self._boss_telegraph_attack_circle: pygame.Surface | None = None
+        self._boss_telegraph_wave_line: pygame.Surface | None = None
+        self._boss_telegraph_meteor_target: pygame.Surface | None = None
+        self._boss_fx_teleport_frames: list = []
+        self._boss_fx_teleport_flash: pygame.Surface | None = None
+        self._boss_fx_teleport_smoke: pygame.Surface | None = None
+        self._boss_fx_teleport_anim: list = []
+        self._boss_fx_spawn_portal: pygame.Surface | None = None
+        self._boss_fx_spawn_portal_anim: list = []
+        self._boss_fx_spawn_explosion: pygame.Surface | None = None
+        self._boss_fx_death_frames: list = []
+        self._boss_fx_death_explosion: pygame.Surface | None = None
+        self._boss_fx_death_energy: pygame.Surface | None = None
+        self._boss_fx_death_particles: pygame.Surface | None = None
+        self._boss_meteor_sprite: pygame.Surface | None = None
+        self._boss_meteor_impact_sprite: pygame.Surface | None = None
+        self._boss_spawn_fx_timer: float = 0.0
+        self._boss_spawn_fx_pos: tuple[float, float] | None = None
+        self._boss_death_fx_timer: float = 0.0
+        self._boss_death_fx_pos: tuple[float, float] | None = None
+        self._boss_revive_message_until: float = 0.0  # room_time when center-screen revive message hides
+        self._boss_revive_message_shown: bool = False  # True once we've triggered the one-time revive message
+        self._biome4_blocking_tiles: set[tuple[int, int]] = set()
+        self._biome4_blocking_tiles_room: int | None = None
+        self._boss_teleport_fx_frame: tuple | None = None  # (old_pos, new_pos) for one frame
+        self._meteor_impact_display: list = []  # [{"x", "y", "until": room_time}]
         # Background (Requirements: room0_bg for arena / Room 0)
         self._gameplay_bg: pygame.Surface | None = None
         # Phase 7: dungeon rooms 0-7, doors, hazards
@@ -207,6 +296,7 @@ class GameScene(BaseScene):
         self._camera_target_world = (LOGICAL_W / 2.0, LOGICAL_H / 2.0)
         self._player = None
         self._enemies = []
+        self._projectiles = []
         self._spawned_enemies = False
         self._dash_request = False
         self._attack_short_request = False
@@ -220,6 +310,21 @@ class GameScene(BaseScene):
         self._rewards = []
         self._doors_unlocked = False
         self._door_unlock_timer = None
+        self._final_boss_spawn_timer = None
+        self._final_boss_spawned = False
+        self._room_time = 0.0
+        self._meteor_impacts = []
+        self._meteor_impact_display = []
+        self._final_boss_contact_timer = 0.0
+        self._boss_spawn_fx_timer = 0.0
+        self._boss_spawn_fx_pos = None
+        self._boss_revive_message_until = 0.0
+        self._boss_revive_message_shown = False
+        self._boss_death_fx_timer = 0.0
+        self._boss_death_fx_pos = None
+        self._boss_teleport_fx_frame = None
+        self._victory_phase = False
+        self._victory_timer = 0.0
         self._mini_boss_death_pos = None
         self._mini_boss_bar_frame = None
         self._mini_boss_bar_fill = None
@@ -244,6 +349,15 @@ class GameScene(BaseScene):
         self._safe_room_heal_pos: tuple[float, float] | None = None
         self._near_safe_room_heal = False
         self._heal_flash_timer: float = 0.0
+        # Biome 3 Room 21 safe room: 3 upgrade choices, player picks 1 (deterministic order 1=Health, 2=Speed, 3=Attack).
+        self._safe_room_upgrade_chosen_this_room = False
+        self._safe_room_upgrade_icon_health: pygame.Surface | None = None
+        self._safe_room_upgrade_icon_speed: pygame.Surface | None = None
+        self._safe_room_upgrade_icon_attack: pygame.Surface | None = None
+        self._safe_room_upgrade_icon_defence: pygame.Surface | None = None
+        # Biome 4 safe room: 4 options, choose 2.
+        self._safe_room_biome4_picks_remaining = 0
+        self._safe_room_biome4_chosen: set[int] = set()
 
     def _ensure_room(self) -> None:
         """Phase 7: ensure room controller exists when USE_PHASE7_DUNGEON; else leave None (single arena)."""
@@ -251,8 +365,16 @@ class GameScene(BaseScene):
             return
         if self._room_controller is None:
             self._room_controller = RoomController(SEED)
-            self._room_controller.load_room(0)
+            self._room_controller.load_room(START_ROOM_INDEX)
             self._room_cleared_flag = False
+            room0 = self._room_controller.current_room
+            if room0 is not None and room0.room_type == RoomType.FINAL_BOSS:
+                self._final_boss_spawn_timer = BIOME4_FINAL_BOSS_SPAWN_DELAY_SEC
+                self._final_boss_spawned = False
+                self._room_time = 0.0
+                preload_final_boss_animations()
+                preload_enemy_animations("swarm")
+                preload_enemy_animations("flanker")
             self._setup_room0_props_and_dummy()
 
     def _setup_room0_props_and_dummy(self) -> None:
@@ -330,7 +452,20 @@ class GameScene(BaseScene):
 
             # Spawn specs: (enemy_cls, elite, start_time_sec, telegraph_sec or None)
             spawn_specs: list[tuple] = []
-            if room_idx >= 8:  # Biome 2 rooms (campaign indices 8-15) use MiniBoss2
+            if room_idx >= BIOME4_START_INDEX:  # Biome 4 rooms 24-29; Room 29 FINAL_BOSS metadata only
+                spawn_specs = get_biome4_spawn_specs(
+                    room_idx - BIOME4_START_INDEX, rtype, Swarm, Flanker, Brute, Heavy, Ranged
+                )
+            elif room_idx >= BIOME3_START_INDEX:  # Biome 3 rooms 16-23; Room 23 uses Biome3MiniBoss
+                spawn_specs = get_biome3_spawn_specs(
+                    room_idx - BIOME3_START_INDEX, rtype, Swarm, Flanker, Brute, Heavy, Ranged, Biome3MiniBoss
+                )
+                # Preload boss and add-enemy assets when this room will spawn Biome3MiniBoss to avoid stall on spawn and when boss calls for help.
+                if any(s[0] is Biome3MiniBoss for s in spawn_specs):
+                    preload_biome3_miniboss_animations()
+                    preload_enemy_animations("swarm")
+                    preload_enemy_animations("flanker")
+            elif room_idx >= 8:  # Biome 2 rooms (campaign indices 8-15) use MiniBoss2
                 spawn_specs = get_biome2_spawn_specs(
                     room_idx - 8, rtype, Swarm, Flanker, Brute, Heavy, MiniBoss2
                 )
@@ -375,7 +510,52 @@ class GameScene(BaseScene):
 
             # Advanced spawn: spread / triangle / ambush by room type; world_pos per slot.
             positions_world: list[tuple[float, float]] = []
-            if room_idx >= 8:  # Biome 2 rooms
+            if room_idx >= BIOME4_START_INDEX:  # Biome 4 rooms
+                pattern = get_biome4_spawn_pattern(rtype)
+                if pattern == "triangle":
+                    positions_world = spawn_triangle(
+                        room, player_center, is_elite=True, rng=rng, door_positions=door_positions,
+                        offset_px=BIOME4_TRIANGLE_OFFSET_PX,
+                    )
+                elif pattern == "ambush":
+                    positions_world = spawn_ambush(
+                        room, player_center, len(spawn_specs), rng=rng,
+                        radius_px=BIOME4_AMBUSH_RADIUS_PX,
+                    )
+                elif pattern == "spread":
+                    positions_world = spawn_spread(
+                        room, player_center, len(spawn_specs),
+                        is_elite=(rtype == RoomType.ELITE),
+                        rng=rng, door_positions=door_positions,
+                    )
+                else:
+                    positions_world = []
+            elif room_idx >= BIOME3_START_INDEX:  # Biome 3 rooms
+                pattern = get_biome3_spawn_pattern(rtype)
+                if pattern == "triangle":
+                    positions_world = spawn_triangle(room, player_center, is_elite=True, rng=rng, door_positions=door_positions)
+                elif pattern == "ambush":
+                    positions_world = spawn_ambush(room, player_center, len(spawn_specs), rng=rng)
+                elif pattern == "single":
+                    if len(spawn_specs) == 1:
+                        # Spawn boss at a valid position at least MIN_DISTANCE_FROM_PLAYER_PX from player
+                        # so the boss has room to move toward the player (avoids boss stuck at center)
+                        xy = generate_valid_spawn_position(room, player_center, [], is_elite=False, rng=rng)
+                        positions_world = [xy]
+                    else:
+                        positions_world = []
+                        for _ in range(len(spawn_specs)):
+                            xy = generate_valid_spawn_position(
+                                room, player_center, positions_world, is_elite=False, rng=rng
+                            )
+                            positions_world.append(xy)
+                elif pattern == "spread":
+                    positions_world = spawn_spread(
+                        room, player_center, len(spawn_specs),
+                        is_elite=(rtype == RoomType.ELITE),
+                        rng=rng, door_positions=door_positions,
+                    )
+            elif room_idx >= 8:  # Biome 2 rooms
                 pattern = get_biome2_spawn_pattern(rtype)
                 if pattern == "triangle":
                     positions_world = spawn_triangle(room, player_center, is_elite=True, rng=rng, door_positions=door_positions)
@@ -418,6 +598,14 @@ class GameScene(BaseScene):
             for i, (cls, elite_flag, start_time_sec, telegraph_sec) in enumerate(spawn_specs):
                 if i < len(positions_world):
                     wx, wy = positions_world[i]
+                    # Heavy: ensure spawn not near corners, walls, or solid props
+                    if cls.__name__ == "Heavy":
+                        self._ensure_biome4_blocking_tiles(room)
+                        blocked = getattr(self, "_biome4_blocking_tiles", set()) if (room and self._room_controller and self._room_controller.current_room_index >= BIOME4_START_INDEX) else None
+                        other_positions = [positions_world[j] for j in range(len(positions_world)) if j != i]
+                        wx, wy = ensure_valid_spawn_position(
+                            room, wx, wy, existing_positions=other_positions, rng=rng, for_heavy=True, blocked_tiles=blocked
+                        )
                     self._spawn_system.add_spawn(
                         0, 0, cls, elite_flag, start_time_sec,
                         telegraph_duration_sec=telegraph_sec,
@@ -448,10 +636,13 @@ class GameScene(BaseScene):
                 time_acc += SPAWN_SLOT_DELAY_SEC if cls is not MiniBoss else 2.0
 
     def _tile_blocks_movement(self, room, tx: int, ty: int) -> bool:
-        """Return True if this tile is a solid wall/closed door per current door state. Uses wall band (2 or 4 tiles)."""
+        """Return True if this tile is a solid wall/closed door or a solid Biome 4 prop. Uses wall band (2 or 4 tiles)."""
         if room is None:
             return False
         if tx < 0 or ty < 0 or tx >= room.width or ty >= room.height:
+            return True
+        if (self._room_controller is not None and self._room_controller.current_room_index == getattr(self, "_biome4_blocking_tiles_room", None)
+                and (tx, ty) in getattr(self, "_biome4_blocking_tiles", set())):
             return True
         if not room.is_tile_in_wall_band(tx, ty):
             return False
@@ -460,12 +651,88 @@ class GameScene(BaseScene):
                 return d.state != DoorState.OPEN
         return True
 
+    def _ensure_biome4_blocking_tiles(self, room) -> None:
+        """Build _biome4_blocking_tiles for current room if Biome 4, so spawn/collision can use it."""
+        if self._room_controller is None or room is None:
+            return
+        room_index = self._room_controller.current_room_index
+        if room_index < BIOME4_START_INDEX:
+            return
+        if self._biome4_blocking_tiles_room == room_index:
+            return
+        doors = list(self._room_controller.door_system.doors())
+        door_tiles = set((int(d.tile_x), int(d.tile_y)) for d in doors)
+        for d in doors:
+            door_tiles.add((int(d.tile_x), int(d.tile_y) + 1))
+        placements = get_biome4_prop_placements(room, room_index, door_tiles, SEED)
+        self._biome4_blocking_tiles = set()
+        self._biome4_blocking_tiles_room = room_index
+        for surf, wx, wy, prop_type in placements:
+            if prop_type not in SOLID_PROP_INDICES or surf is None:
+                continue
+            sw, sh = surf.get_size()
+            if sw <= TILE_SIZE and sh <= TILE_SIZE:
+                tx = int((wx + sw / 2) // TILE_SIZE)
+                ty = int((wy + sh / 2) // TILE_SIZE)
+                self._biome4_blocking_tiles.add((tx, ty))
+            else:
+                tx0, ty0 = int(wx // TILE_SIZE), int(wy // TILE_SIZE)
+                for dx in range(2):
+                    for dy in range(2):
+                        self._biome4_blocking_tiles.add((tx0 + dx, ty0 + dy))
+
+    def _heavy_clearance_ok(self, room, rect: pygame.Rect, padding_px: float) -> bool:
+        """True if Heavy's probe rect (inflated by padding_px) does not overlap any solid blocker.
+        Heavy must not move through walls, props, or obstacle tiles; use same blocking map as other entities."""
+        if room is None:
+            return True
+        r = rect.inflate(2 * padding_px, 2 * padding_px)
+        min_tx = int(r.left // TILE_SIZE)
+        max_tx = int((r.right - 1) // TILE_SIZE)
+        min_ty = int(r.top // TILE_SIZE)
+        max_ty = int((r.bottom - 1) // TILE_SIZE)
+        for ty in range(min_ty, max_ty + 1):
+            for tx in range(min_tx, max_tx + 1):
+                if self._tile_blocks_movement(room, tx, ty):
+                    return False
+        return True
+
+    def _heavy_retreat_direction(self, room, world_pos: tuple[float, float]) -> tuple[float, float]:
+        """Unit vector away from nearest obstacle cluster (centroid of nearby blockers). Deterministic, no teleport."""
+        x, y = world_pos
+        block_check = self._tile_blocks_movement
+        tx0, ty0 = int(x // TILE_SIZE), int(y // TILE_SIZE)
+        search = 5
+        blocked_centers: list[tuple[float, float]] = []
+        for dy in range(-search, search + 1):
+            for dx in range(-search, search + 1):
+                tx, ty = tx0 + dx, ty0 + dy
+                if block_check(room, tx, ty):
+                    cell_center_x = (tx + 0.5) * TILE_SIZE
+                    cell_center_y = (ty + 0.5) * TILE_SIZE
+                    blocked_centers.append((cell_center_x, cell_center_y))
+        if blocked_centers:
+            cx = sum(c[0] for c in blocked_centers) / len(blocked_centers)
+            cy = sum(c[1] for c in blocked_centers) / len(blocked_centers)
+            dx = x - cx
+            dy = y - cy
+            n = math.hypot(dx, dy)
+            if n > 1e-6:
+                return (dx / n, dy / n)
+        if self._room_controller is not None and room is not None:
+            min_x, min_y, max_x, max_y = room.playable_bounds_pixels()
+            room_rect = pygame.Rect(min_x, min_y, max_x - min_x, max_y - min_y)
+            from entities.enemy_base import _get_retreat_direction_away_from_wall
+            return _get_retreat_direction_away_from_wall(world_pos, room_rect)
+        return (1.0, 0.0)
+
     def _resolve_entity_wall_collision(self, entity, prev_pos: tuple[float, float], room) -> None:
-        """If entity overlaps a solid wall tile, revert to prev position."""
+        """If entity overlaps a solid wall/prop tile, revert to prev position. Lava/slow are walkable (no block); lava damage is applied separately to player and enemies."""
         if room is None or self._room_controller is None:
             return
         if getattr(entity, "inactive", False):
             return
+        block_check = self._tile_blocks_movement
         if hasattr(entity, "get_hitbox_rect"):
             r = entity.get_hitbox_rect()
         else:
@@ -478,8 +745,38 @@ class GameScene(BaseScene):
         max_ty = int((r.bottom - 1) // TILE_SIZE)
         for ty in range(min_ty, max_ty + 1):
             for tx in range(min_tx, max_tx + 1):
-                if self._tile_blocks_movement(room, tx, ty):
+                if block_check(room, tx, ty):
                     entity.world_pos = prev_pos
+                    setattr(entity, "_wall_collision_this_frame", True)
+                    # Slide along wall: nudge perpendicular to velocity so enemies don't stay stuck
+                    vx, vy = getattr(entity, "velocity_xy", (0.0, 0.0))
+                    speed = math.hypot(vx, vy)
+                    if speed > 1.0:
+                        perp_x = -vy / speed
+                        perp_y = vx / speed
+                        nudge = 6.0
+                        nx = prev_pos[0] + perp_x * nudge
+                        ny = prev_pos[1] + perp_y * nudge
+                        if hasattr(entity, "get_hitbox_rect"):
+                            r = entity.get_hitbox_rect()
+                            r2 = pygame.Rect(0, 0, r.width, r.height)
+                            r2.center = (nx, ny)
+                        else:
+                            r2 = pygame.Rect(nx - 16, ny - 16, 32, 32)
+                        min_tx2 = int(r2.left // TILE_SIZE)
+                        max_tx2 = int((r2.right - 1) // TILE_SIZE)
+                        min_ty2 = int(r2.top // TILE_SIZE)
+                        max_ty2 = int((r2.bottom - 1) // TILE_SIZE)
+                        blocked = False
+                        for ty2 in range(min_ty2, max_ty2 + 1):
+                            for tx2 in range(min_tx2, max_tx2 + 1):
+                                if block_check(room, tx2, ty2):
+                                    blocked = True
+                                    break
+                            if blocked:
+                                break
+                        if not blocked:
+                            entity.world_pos = (nx, ny)
                     return
 
     @property
@@ -516,12 +813,26 @@ class GameScene(BaseScene):
         else:
             self._player.room_bounds = None
             self._player.speed_factor = 1.0
+        # Biome 4 Phase 2: use Biome 4 spawn portal/telegraph assets only in Biome 4 rooms.
+        if self._room_controller is not None and self._room_controller.current_room is not None:
+            room = self._room_controller.current_room
+            self._vfx.set_biome4_spawn_visuals(getattr(room, "biome_index", 1) == 4)
+        else:
+            self._vfx.set_biome4_spawn_visuals(False)
         self._ensure_spawn_system()
         if self._spawn_system is not None:
             self._spawn_system.update(dt, self._player, self._enemies)
 
         if self._room_controller is not None:
             self._room_controller.update(dt)
+
+        # Phase 3: victory after beating final boss (last room exit)
+        if self._victory_phase:
+            self._victory_timer += dt
+            if self._victory_timer >= 5.0:
+                self._victory_phase = False
+                self.scene_manager.switch_to_start()
+            return
 
         # If we're in a death sequence, run its timeline and skip normal combat.
         if self._death_phase is not None:
@@ -568,11 +879,112 @@ class GameScene(BaseScene):
 
         # Build list of all hostiles (enemies + mini boss when present)
         all_hostiles = list(self._enemies)
-        # Resolve player and enemy attacks before checking for new death.
+        # Resolve player attacks first (enemy attacks resolved after enemy update so e.g. mini_boss_3 is in attack_01/attack_02).
         player_events = apply_player_attacks(self._player, all_hostiles)
-        enemy_events = apply_enemy_attacks(self._player, all_hostiles, dt)
         if player_events:
             self._debug_player_hit_time = pygame.time.get_ticks() / 1000.0
+        # Room 0: training dummy HP resets after each hit (Requirements §9.5.3)
+        if self._room_controller is not None and self._room_controller.current_room_index == 0:
+            for e in self._enemies:
+                if getattr(e, "is_training_dummy", False):
+                    e.hp = getattr(e, "max_hp", 9999.0)
+
+        # Update enemies after player (Phase 3); use playable area when in Phase 7
+        if room is not None:
+            min_x, min_y, max_x, max_y = room.playable_bounds_pixels()
+            room_rect = pygame.Rect(min_x, min_y, max_x - min_x, max_y - min_y)
+        else:
+            room_rect = pygame.Rect(ENEMY_MIN_X, ENEMY_MIN_Y, ENEMY_MAX_X - ENEMY_MIN_X, ENEMY_MAX_Y - ENEMY_MIN_Y)
+        self._room_time += dt
+        # Phase 3: Final Boss spawn at 2.0s in Room 29 (with spawn portal/explosion VFX)
+        if room is not None and room.room_type == RoomType.FINAL_BOSS and self._final_boss_spawn_timer is not None:
+            self._final_boss_spawn_timer -= dt
+            if self._final_boss_spawn_timer <= 0.0:
+                self._final_boss_spawn_timer = None
+                self._final_boss_spawned = True
+                cx, cy = room.width // 2, room.height // 2
+                wx, wy = room.world_pos_for_tile(cx, cy)
+                self._enemies.append(FinalBoss((wx, wy), room_index=self._room_controller.current_room_index))
+                self._boss_spawn_fx_timer = 1.2
+                self._boss_spawn_fx_pos = (float(wx), float(wy))
+                self._boss_revive_message_until = 0.0
+                self._boss_revive_message_shown = False
+        for enemy in list(self._enemies):
+            if getattr(enemy, "inactive", False):
+                continue
+            prev_enemy_pos = enemy.world_pos
+            if isinstance(enemy, FinalBoss):
+                block_check = (lambda r, tx, ty: self._tile_blocks_movement(r, tx, ty)) if room is not None else None
+                enemy.update(dt, self._player, room_rect, room, block_check=block_check)
+            else:
+                if getattr(enemy, "enemy_type", None) == "heavy" and room is not None:
+                    heavy_clearance_cb = lambda rect, pad: self._heavy_clearance_ok(room, rect, pad)
+                    heavy_retreat_cb = lambda: self._heavy_retreat_direction(room, enemy.world_pos)
+                    enemy.update(dt, self._player, room_rect, heavy_clearance_cb=heavy_clearance_cb, heavy_retreat_cb=heavy_retreat_cb)
+                else:
+                    enemy.update(dt, self._player, room_rect)
+            if room is not None:
+                self._resolve_entity_wall_collision(enemy, prev_enemy_pos, room)
+        # Phase 6: detect mini boss / Final Boss death after update (before removing from list)
+        for e in self._enemies:
+            if isinstance(e, FinalBoss) and getattr(e, "state", None) == "death" and not getattr(e, "_revived", False) and not getattr(e, "_final_death", False):
+                self._boss_death_fx_timer = 2.0
+                self._boss_death_fx_pos = (float(e.world_pos[0]), float(e.world_pos[1]))
+            if isinstance(e, (MiniBoss, MiniBoss2, Biome3MiniBoss, FinalBoss)) and getattr(e, "inactive", False):
+                self._mini_boss_death_pos = e.world_pos
+                if isinstance(e, FinalBoss):
+                    self._boss_death_fx_timer = 2.0
+                    self._boss_death_fx_pos = (float(e.world_pos[0]), float(e.world_pos[1]))
+                break
+        # Capture one-frame teleport FX from Final Boss (then clear on boss)
+        self._boss_teleport_fx_frame = None
+        for e in self._enemies:
+            if isinstance(e, FinalBoss) and getattr(e, "_teleport_fx_frame", None) is not None:
+                self._boss_teleport_fx_frame = e._teleport_fx_frame
+                e._teleport_fx_frame = None
+                break
+        # Final Boss revive: show center-screen message when boss enters revive_wait (once per encounter)
+        for e in self._enemies:
+            if isinstance(e, FinalBoss) and getattr(e, "state", None) == "revive_wait" and not self._boss_revive_message_shown:
+                self._boss_revive_message_until = self._room_time + FINAL_BOSS_REVIVE_MESSAGE_DURATION_SEC
+                self._boss_revive_message_shown = True
+                break
+        # Biome 3 mini boss: spawn 2 Swarm + 1 Flanker in ring when boss requests adds
+        for e in self._enemies:
+            if getattr(e, "_pending_adds", False):
+                bx, by = e.world_pos
+                radius = 120.0
+                add_positions = [(bx, by)]
+                for i, (add_cls, elite) in enumerate([(Swarm, False), (Swarm, False), (Flanker, False)]):
+                    angle = (i * 2 * math.pi / 3)
+                    wx = bx + radius * math.cos(angle)
+                    wy = by + radius * math.sin(angle)
+                    if room is not None:
+                        wx, wy = ensure_valid_spawn_position(room, wx, wy, existing_positions=add_positions)
+                    add_positions.append((wx, wy))
+                    add_enemy = add_cls((wx, wy), elite=elite)
+                    self._enemies.append(add_enemy)
+                e._pending_adds = False
+                break
+        # Phase 3: copy Final Boss meteor impacts with trigger_at = room_time + phase-specific telegraph
+        for e in self._enemies:
+            pending = getattr(e, "pending_meteor_impacts", None)
+            if pending:
+                for imp in pending:
+                    telegraph_sec = imp.get("telegraph_sec", BIOME4_BOSS_TELEGRAPH_METEOR_SEC)
+                    self._meteor_impacts.append({
+                        "x": imp["x"], "y": imp["y"], "damage": imp["damage"],
+                        "radius": imp.get("radius", 64.0),
+                        "trigger_at": self._room_time + telegraph_sec,
+                        "telegraph_sec": telegraph_sec,
+                        "start_at": self._room_time,
+                    })
+                e.pending_meteor_impacts.clear()
+        self._enemies = [e for e in self._enemies if not getattr(e, "inactive", False)]
+
+        # Resolve enemy melee attacks after enemy update so bosses (e.g. Biome 3 mini_boss_3) are in attack_01/attack_02 when we check.
+        all_hostiles = list(self._enemies)
+        enemy_events = apply_enemy_attacks(self._player, all_hostiles, dt)
         if DEBUG_COMBAT_HITS:
             room_idx = self._room_controller.current_room_index if self._room_controller is not None else -1
             p = self._player
@@ -587,12 +999,47 @@ class GameScene(BaseScene):
                     f"enemy0={getattr(e0, 'enemy_type', type(e0).__name__)} hp={float(getattr(e0, 'hp', 0.0)):.1f}/{float(getattr(e0, 'max_hp', 0.0)):.1f}"
                 )
         self._spawn_vfx_for_damage(player_events + enemy_events)
-        # Room 0: training dummy HP resets after each hit (Requirements §9.5.3)
-        if self._room_controller is not None and self._room_controller.current_room_index == 0:
+        # Phase 3: Final Boss contact damage (every 0.5s when player overlaps boss)
+        if self._player is not None and room is not None:
+            player_rect = self._player.get_hitbox_rect()
             for e in self._enemies:
-                if getattr(e, "is_training_dummy", False):
-                    e.hp = getattr(e, "max_hp", 9999.0)
-
+                if isinstance(e, FinalBoss) and not getattr(e, "inactive", False):
+                    if e.state == "revive_wait":
+                        continue
+                    ex, ey = e.world_pos
+                    boss_rect = pygame.Rect(ex - 64, ey - 64, 128, 128)
+                    if player_rect.colliderect(boss_rect):
+                        self._final_boss_contact_timer -= dt
+                        if self._final_boss_contact_timer <= 0.0:
+                            self._final_boss_contact_timer = 0.5
+                            contact_dmg = FINAL_BOSS_CONTACT_DAMAGE_REVIVE if getattr(e, "_revived", False) else FINAL_BOSS_CONTACT_DAMAGE
+                            self._player.hp = max(0, self._player.hp - contact_dmg)
+                            if hasattr(self._player, "damage_flash_timer"):
+                                self._player.damage_flash_timer = 0.15
+                    else:
+                        self._final_boss_contact_timer = 0.0
+        # Phase 3: process meteor impacts (damage + add to impact display for VFX)
+        still_pending = []
+        for imp in self._meteor_impacts:
+            if self._room_time >= imp["trigger_at"]:
+                if self._player is not None:
+                    px, py = self._player.world_pos
+                    dx = px - imp["x"]
+                    dy = py - imp["y"]
+                    if math.hypot(dx, dy) <= imp["radius"]:
+                        self._player.hp = max(0, self._player.hp - imp["damage"])
+                        if hasattr(self._player, "damage_flash_timer"):
+                            self._player.damage_flash_timer = 0.15
+                self._meteor_impact_display.append({"x": imp["x"], "y": imp["y"], "until": self._room_time + 0.4})
+            else:
+                still_pending.append(imp)
+        self._meteor_impacts = still_pending
+        # Decay spawn FX, death FX, meteor impact display
+        if self._boss_spawn_fx_timer > 0.0:
+            self._boss_spawn_fx_timer -= dt
+        if self._boss_death_fx_timer > 0.0:
+            self._boss_death_fx_timer -= dt
+        self._meteor_impact_display = [m for m in self._meteor_impact_display if self._room_time < m["until"]]
         # Start death sequence when HP hits 0
         if self._player.hp <= 0 and self._death_phase is None:
             self._death_phase = "anim"
@@ -602,25 +1049,18 @@ class GameScene(BaseScene):
                     enemy.on_player_death_start(self._player)
             return
 
-        # Update enemies after player (Phase 3); use playable area when in Phase 7
-        if room is not None:
-            min_x, min_y, max_x, max_y = room.playable_bounds_pixels()
-            room_rect = pygame.Rect(min_x, min_y, max_x - min_x, max_y - min_y)
-        else:
-            room_rect = pygame.Rect(ENEMY_MIN_X, ENEMY_MIN_Y, ENEMY_MAX_X - ENEMY_MIN_X, ENEMY_MAX_Y - ENEMY_MIN_Y)
-        for enemy in list(self._enemies):
-            if getattr(enemy, "inactive", False):
-                continue
-            prev_enemy_pos = enemy.world_pos
-            enemy.update(dt, self._player, room_rect)
-            if room is not None:
-                self._resolve_entity_wall_collision(enemy, prev_enemy_pos, room)
-        # Phase 6: detect mini boss death after update (before removing from list)
-        for e in self._enemies:
-            if isinstance(e, (MiniBoss, MiniBoss2)) and getattr(e, "inactive", False):
-                self._mini_boss_death_pos = e.world_pos
-                break
-        self._enemies = [e for e in self._enemies if not getattr(e, "inactive", False)]
+        # Biome 3: collect projectiles from ranged, update, resolve vs player
+        for enemy in self._enemies:
+            pending = getattr(enemy, "_pending_projectile", None)
+            if pending is not None:
+                self._projectiles.append(pending)
+                enemy._pending_projectile = None
+        for p in self._projectiles:
+            p.update(dt)
+        proj_events = apply_projectile_hits(self._player, self._projectiles)
+        if proj_events:
+            self._spawn_vfx_for_damage(proj_events)
+        self._projectiles = [p for p in self._projectiles if not getattr(p, "inactive", True)]
 
         # Phase 7: room clear -> start door open timer (once per room); 25% heal drop (seeded)
         if self._room_controller is not None and not self._room_cleared_flag:
@@ -673,19 +1113,20 @@ class GameScene(BaseScene):
                     self._player.hp = max(0, self._player.hp - dmg)
                     if hasattr(self._player, "damage_flash_timer"):
                         self._player.damage_flash_timer = 0.15
-            for e in self._enemies:
-                if getattr(e, "inactive", False):
+            # Lava damages enemies too (shared hazard system); Heavy and others take lava damage.
+            for enemy in list(self._enemies):
+                if getattr(enemy, "inactive", False):
                     continue
-                ex, ey = e.world_pos
+                ex, ey = getattr(enemy, "world_pos", (0.0, 0.0))
                 et_x, et_y = hz.tile_at_world(ex, ey)
                 if hz.is_lava_tile(et_x, et_y):
                     dmg = LAVA_DAMAGE_PER_SECOND * dt
                     if dmg > 0:
-                        e.hp = max(0, e.hp - dmg)
-                        if hasattr(e, "damage_flash_timer"):
-                            e.damage_flash_timer = 0.15
-                    if e.hp <= 0:
-                        e.inactive = True
+                        enemy.hp = max(0.0, getattr(enemy, "hp", 0.0) - dmg)
+                        if hasattr(enemy, "damage_flash_timer"):
+                            enemy.damage_flash_timer = 0.15
+                        if enemy.hp <= 0 and hasattr(enemy, "_set_state"):
+                            enemy._set_state("death")
 
         # Phase 6: on mini boss death spawn reward and start door-unlock delay
         if self._mini_boss_death_pos is not None:
@@ -699,6 +1140,9 @@ class GameScene(BaseScene):
             if self._door_unlock_timer <= 0.0:
                 self._doors_unlocked = True
                 self._door_unlock_timer = None
+                if room is not None and room.room_type == RoomType.FINAL_BOSS and not self._room_cleared_flag:
+                    self._room_controller.on_room_clear()
+                    self._room_cleared_flag = True
 
         # Phase 7: door transition (rooms 0–7) — player rect overlapping open doorway trigger loads next room
         if (
@@ -731,10 +1175,10 @@ class GameScene(BaseScene):
                     next_idx = target_room_index
                     break
             if next_idx is not None:
-                # Last campaign room: beating the mini boss ends the run.
                 total = total_campaign_rooms()
                 if self._room_controller.current_room_index == total - 1:
-                    self.scene_manager.switch_to_start()
+                    self._victory_phase = True
+                    self._victory_timer = 0.0
                     return
                 if next_idx < total:
                     self._room_controller.load_room(next_idx)
@@ -742,14 +1186,39 @@ class GameScene(BaseScene):
                     wx, wy = room.world_pos_for_tile(room.spawn_tile[0], room.spawn_tile[1])
                     self._player.world_pos = (wx, wy)
                     self._enemies = []
+                    self._projectiles = []
                     self._spawned_enemies = False
                     self._spawn_system = None
                     self._room_cleared_flag = False
                     self._rewards = []
                     self._doors_unlocked = False
                     self._door_unlock_timer = None
+                    self._final_boss_spawn_timer = None
+                    self._final_boss_spawned = False
+                    self._room_time = 0.0
+                    self._meteor_impacts = []
+                    self._meteor_impact_display = []
+                    self._final_boss_contact_timer = 0.0
+                    self._boss_spawn_fx_timer = 0.0
+                    self._boss_spawn_fx_pos = None
+                    self._boss_revive_message_until = 0.0
+                    self._boss_revive_message_shown = False
+                    self._boss_death_fx_timer = 0.0
+                    self._boss_death_fx_pos = None
+                    self._boss_teleport_fx_frame = None
+                    self._victory_phase = False
+                    self._victory_timer = 0.0
                     self._safe_room_heal_done = False
+                    if room.room_type == RoomType.FINAL_BOSS:
+                        self._final_boss_spawn_timer = BIOME4_FINAL_BOSS_SPAWN_DELAY_SEC
+                        self._final_boss_spawned = False
+                        preload_final_boss_animations()
+                        preload_enemy_animations("swarm")
+                        preload_enemy_animations("flanker")
                     self._safe_room_upgrade_pending = False
+                    self._safe_room_upgrade_chosen_this_room = False
+                    self._safe_room_biome4_picks_remaining = 0
+                    self._safe_room_biome4_chosen = set()
                     self._heal_drop_rolled_this_room = False
                     self._safe_room_heal_pos = None
 
@@ -766,7 +1235,8 @@ class GameScene(BaseScene):
                 if math.hypot(dx, dy) <= reward_radius + max(player_rect.w, player_rect.h) / 2:
                     r["collected"] = True
                     base_max_hp = getattr(self._player, "base_max_hp", 100.0)
-                    self._player.hp = min(base_max_hp, self._player.hp + base_max_hp * MINI_BOSS_REWARD_HEAL_PERCENT)
+                    heal_pct = FINAL_BOSS_REWARD_HEAL_PERCENT if (room is not None and room.room_type == RoomType.FINAL_BOSS) else MINI_BOSS_REWARD_HEAL_PERCENT
+                    self._player.hp = min(base_max_hp, self._player.hp + base_max_hp * heal_pct)
 
         self._enforce_enemy_separation()
         self._enforce_player_enemy_separation()
@@ -883,6 +1353,12 @@ class GameScene(BaseScene):
             return float(ENEMY_BRUTE_STOP_DISTANCE)
         if enemy_type == "flanker":
             return float(ENEMY_FLANKER_STOP_DISTANCE)
+        if enemy_type == "heavy":
+            from game.config import ENEMY_HEAVY_STOP_DISTANCE
+            return float(ENEMY_HEAVY_STOP_DISTANCE)
+        if enemy_type == "ranged":
+            from game.config import ENEMY_RANGED_STOP_DISTANCE
+            return float(ENEMY_RANGED_STOP_DISTANCE)
         return float(ENEMY_SWARM_STOP_DISTANCE)
 
     def _enforce_player_enemy_separation(self) -> None:
@@ -934,6 +1410,118 @@ class GameScene(BaseScene):
             colorkey_color=(255, 255, 255),
             corner_bg_tolerance=40,
             exact_size=True,
+        )
+
+    def _ensure_boss_ui_loaded(self) -> None:
+        """Phase 3: Final Boss health bar (assets/ui/)."""
+        if self._boss_ui_frame is not None:
+            return
+        self._boss_ui_frame = load_image(
+            "assets/ui/boss_health_bar_frame.png",
+            size=(BIOME4_BOSS_UI_ANCHOR_W, BIOME4_BOSS_UI_ANCHOR_H),
+            use_colorkey=True,
+            colorkey_color=(255, 255, 255),
+            corner_bg_tolerance=40,
+        )
+        self._boss_ui_fill = load_image(
+            "assets/ui/boss_health_bar_fill.png",
+            size=(BIOME4_BOSS_UI_ANCHOR_W - 4, BIOME4_BOSS_UI_ANCHOR_H - 20),
+            use_colorkey=True,
+            colorkey_color=(255, 255, 255),
+            corner_bg_tolerance=40,
+        )
+        self._boss_name_banner = load_image(
+            "assets/ui/boss_name_banner.png",
+            use_colorkey=True,
+            colorkey_color=(255, 255, 255),
+            corner_bg_tolerance=40,
+        )
+        self._victory_bg = load_image("assets/ui/victory_screen_bg.png", size=(LOGICAL_W, LOGICAL_H), use_colorkey=False)
+        self._victory_banner = load_image(
+            "assets/ui/victory_banner.png",
+            use_colorkey=True,
+            colorkey_color=(255, 255, 255),
+            corner_bg_tolerance=40,
+        )
+
+    def _is_placeholder_surface(self, surf: pygame.Surface | None) -> bool:
+        """True if surf is the asset-loader grey placeholder (avoid drawing as boss FX)."""
+        if surf is None or surf.get_width() == 0 or surf.get_height() == 0:
+            return False
+        try:
+            c = surf.get_at((0, 0))[:3]
+            return c == (80, 80, 80)
+        except Exception:
+            return False
+
+    def _ensure_boss_fx_loaded(self) -> None:
+        """Load Biome 4 boss telegraphs and VFX via biome4_visuals loaders (once)."""
+        if self._boss_telegraph_attack_circle is not None:
+            return
+        self._boss_telegraph_attack_circle = load_boss_telegraph("boss_attack_circle_128x128.png", (128, 128))
+        self._boss_telegraph_wave_line = load_boss_telegraph("boss_wave_line_256x64.png", (256, 64))
+        self._boss_telegraph_meteor_target = load_boss_telegraph("boss_meteor_target_96x96.png", (96, 96))
+        teleport_frames = load_boss_fx_teleport()
+        if teleport_frames and not self._is_placeholder_surface(teleport_frames[0]):
+            self._boss_fx_teleport_frames = teleport_frames
+            if len(teleport_frames) >= 1:
+                self._boss_fx_teleport_flash = teleport_frames[0]
+            if len(teleport_frames) >= 2:
+                self._boss_fx_teleport_smoke = teleport_frames[1]
+            if len(teleport_frames) >= 3:
+                self._boss_fx_teleport_anim = teleport_frames[2:]
+        if not self._boss_fx_teleport_flash or self._is_placeholder_surface(self._boss_fx_teleport_flash):
+            self._boss_fx_teleport_flash = load_boss_fx_image("boss_teleport_flash_64x64.png", (64, 64))
+        if not self._boss_fx_teleport_smoke or self._is_placeholder_surface(self._boss_fx_teleport_smoke):
+            self._boss_fx_teleport_smoke = load_boss_fx_image("boss_teleport_smoke_64x64.png", (64, 64))
+        if not self._boss_fx_teleport_anim or (self._boss_fx_teleport_anim and self._is_placeholder_surface(self._boss_fx_teleport_anim[0])):
+            anim_surf = load_boss_fx_image("boss_teleport_anim_64x64.png", (64, 64))
+            if anim_surf:
+                self._boss_fx_teleport_anim = [anim_surf]
+        spawn_frames = load_boss_fx_spawn()
+        if spawn_frames and not self._is_placeholder_surface(spawn_frames[0]):
+            self._boss_fx_spawn_portal = spawn_frames[0]
+            self._boss_fx_spawn_portal_anim = spawn_frames[1:] if len(spawn_frames) > 1 else []
+            if len(spawn_frames) >= 2:
+                self._boss_fx_spawn_explosion = spawn_frames[-1] if not self._is_placeholder_surface(spawn_frames[-1]) else None
+        if not self._boss_fx_spawn_portal or self._is_placeholder_surface(self._boss_fx_spawn_portal):
+            self._boss_fx_spawn_portal = load_boss_fx_image("boss_spawn_portal_256x256.png", (256, 256))
+        if not self._boss_fx_spawn_explosion or self._is_placeholder_surface(self._boss_fx_spawn_explosion):
+            self._boss_fx_spawn_explosion = load_boss_fx_image("boss_spawn_explosion_128x128.png", (128, 128))
+        death_frames = load_boss_fx_death()
+        if death_frames and not self._is_placeholder_surface(death_frames[0]):
+            self._boss_fx_death_frames = death_frames
+            if death_frames:
+                self._boss_fx_death_explosion = death_frames[0]
+                self._boss_fx_death_energy = death_frames[1] if len(death_frames) > 1 else death_frames[0]
+                self._boss_fx_death_particles = death_frames[2] if len(death_frames) > 2 else death_frames[0]
+        if not self._boss_fx_death_explosion or self._is_placeholder_surface(self._boss_fx_death_explosion):
+            self._boss_fx_death_explosion = load_boss_fx_image("boss_death_explosion_256x256.png", (256, 256))
+        if not self._boss_fx_death_energy or self._is_placeholder_surface(self._boss_fx_death_energy):
+            self._boss_fx_death_energy = load_boss_fx_image("boss_death_energy_128x128.png", (128, 128))
+        if not self._boss_fx_death_particles or self._is_placeholder_surface(self._boss_fx_death_particles):
+            self._boss_fx_death_particles = load_boss_fx_image("boss_death_particles.png", (128, 128))
+        self._boss_meteor_sprite = load_boss_projectile("boss_meteor_64x64.png", (64, 64))
+        if not self._boss_meteor_sprite:
+            self._boss_meteor_sprite = load_boss_projectile("boss_meteor_anim_64x64.png", (64, 64))
+        self._boss_meteor_impact_sprite = load_boss_projectile("boss_meteor_impact_128x128.png", (128, 128))
+
+    def _ensure_safe_room_upgrade_icons_loaded(self) -> None:
+        """Biome 3 Room 21 / Biome 4 Room 28: load upgrade choice icons (health, speed, attack, defence)."""
+        if self._safe_room_upgrade_icon_health is not None:
+            return
+        size = (24, 24)
+        self._safe_room_upgrade_icon_health = load_image(
+            "assets/ui/hud/icon_health_24x24.png", size=size, exact_size=True
+        )
+        self._safe_room_upgrade_icon_speed = load_image(
+            "assets/ui/hud/icon_speed_24x24.png", size=size, exact_size=True
+        )
+        self._safe_room_upgrade_icon_attack = load_image(
+            "assets/ui/hud/icon_attack_24x24.png", size=size, exact_size=True
+        )
+        self._safe_room_upgrade_icon_defence = load_image(
+            "assets/ui/hud/icon_defence_24x24.png", size=size, exact_size=True
         )
 
     def _ensure_gameplay_bg(self) -> None:
@@ -1074,7 +1662,8 @@ class GameScene(BaseScene):
             exact_size=True,
         )
         self._room0_prompt_bg = load_image(INTERACT_PROMPT_BG_PATH, size=(200, 48))
-        self._room0_story_panel_surf = load_image(STORY_PANEL_PATH, size=(LOGICAL_W - 80, LOGICAL_H - 80))
+        # Taller panel so full story text fits inside frame (was LOGICAL_H - 80; now LOGICAL_H - 24)
+        self._room0_story_panel_surf = load_image(STORY_PANEL_PATH, size=(LOGICAL_W - 80, LOGICAL_H - 24))
 
     def _draw_room_tiles_and_doors(self, screen: pygame.Surface, co: tuple[float, float]) -> None:
         """Phase 7: draw floor/lava/slow tiles and doors using assets from Requirements; fallback to colored rects if missing."""
@@ -1158,6 +1747,152 @@ class GameScene(BaseScene):
             sy = int(center_y - cy - sh / 2)
             screen.blit(surf, (sx, sy))
 
+    def _draw_biome4_hazard_overlays(self, screen: pygame.Surface, co: tuple[float, float]) -> None:
+        """Draw Biome 4 lava/slow overlay variants on top of hazard tiles (visual only)."""
+        if self._room_controller is None or self._room_controller.current_room is None:
+            return
+        room = self._room_controller.current_room
+        hz = self._room_controller.hazard_system
+        frame_idx = hz.lava_frame_index()
+        cx, cy = co
+        b4 = Biome4Visuals.get()
+        b4.ensure_loaded()
+        for ty in range(room.height):
+            for tx in range(room.width):
+                tile = room.get_tile_type(tx, ty)
+                if tile != TILE_LAVA and tile != TILE_SLOW:
+                    continue
+                overlay = b4.get_lava_overlay_frame(tx, ty, frame_idx) if tile == TILE_LAVA else b4.get_slow_overlay_frame(tx, ty, frame_idx)
+                if overlay is None:
+                    continue
+                wx = tx * TILE_SIZE
+                wy = ty * TILE_SIZE
+                sx = int(wx - cx)
+                sy = int(wy - cy)
+                screen.blit(overlay, (sx, sy))
+
+    def _draw_biome4_props(self, screen: pygame.Surface, co: tuple[float, float]) -> None:
+        """Draw Biome 4 props (seeded placement). Solid props (pillar, statue, spike, rock_cluster) also block movement."""
+        if self._room_controller is None or self._room_controller.current_room is None:
+            return
+        room = self._room_controller.current_room
+        room_index = self._room_controller.current_room_index
+        doors = list(self._room_controller.door_system.doors())
+        door_tiles = set((int(d.tile_x), int(d.tile_y)) for d in doors)
+        for d in doors:
+            door_tiles.add((int(d.tile_x), int(d.tile_y) + 1))
+        placements = get_biome4_prop_placements(room, room_index, door_tiles, SEED)
+        if self._biome4_blocking_tiles_room != room_index:
+            self._biome4_blocking_tiles = set()
+            self._biome4_blocking_tiles_room = room_index
+            for surf, wx, wy, prop_type in placements:
+                if prop_type not in SOLID_PROP_INDICES or surf is None:
+                    continue
+                sw, sh = surf.get_size()
+                if sw <= TILE_SIZE and sh <= TILE_SIZE:
+                    tx = int((wx + sw / 2) // TILE_SIZE)
+                    ty = int((wy + sh / 2) // TILE_SIZE)
+                    self._biome4_blocking_tiles.add((tx, ty))
+                else:
+                    # 64x64 prop: block 2x2 tiles from placement origin
+                    tx0, ty0 = int(wx // TILE_SIZE), int(wy // TILE_SIZE)
+                    for dx in range(2):
+                        for dy in range(2):
+                            self._biome4_blocking_tiles.add((tx0 + dx, ty0 + dy))
+        cx, cy = co
+        for surf, wx, wy, _prop_type in placements:
+            if surf is None:
+                continue
+            screen.blit(surf, (int(wx - cx), int(wy - cy)))
+
+    def _draw_boss_telegraphs_and_meteor_targets(self, screen: pygame.Surface, co: tuple[float, float]) -> None:
+        """Draw Final Boss attack telegraphs and meteor target circles (before boss sprite)."""
+        self._ensure_boss_fx_loaded()
+        cx, cy = co
+        boss = next((e for e in self._enemies if isinstance(e, FinalBoss)), None)
+        if boss is not None and not getattr(boss, "inactive", False):
+            bx, by = boss.world_pos
+            # Fireball telegraph: attack_circle at boss
+            if boss.state == "attack1" and getattr(boss, "_pending_fireball_dir", None) and getattr(boss, "_attack_telegraph_timer", 0) > 0:
+                if self._boss_telegraph_attack_circle is not None:
+                    surf = self._boss_telegraph_attack_circle
+                    screen.blit(surf, (int(bx - surf.get_width() // 2 - cx), int(by - surf.get_height() // 2 - cy)))
+            # Lava wave telegraph: wave_line at boss, rotated toward pending direction
+            if boss.state == "attack2" and getattr(boss, "_pending_lava_wave_dir", None) and getattr(boss, "_attack_telegraph_timer", 0) > 0:
+                if self._boss_telegraph_wave_line is not None:
+                    dx, dy = boss._pending_lava_wave_dir
+                    angle_deg = -math.degrees(math.atan2(dy, dx))
+                    surf = pygame.transform.rotate(self._boss_telegraph_wave_line, angle_deg)
+                    screen.blit(surf, (int(bx - surf.get_width() // 2 - cx), int(by - surf.get_height() // 2 - cy)))
+            # Teleport warning: attack_circle at destination
+            if boss.state == "teleport_telegraph" and getattr(boss, "_teleport_dest", None) is not None:
+                tx, ty = boss._teleport_dest
+                if self._boss_telegraph_attack_circle is not None:
+                    surf = self._boss_telegraph_attack_circle
+                    screen.blit(surf, (int(tx - surf.get_width() // 2 - cx), int(ty - surf.get_height() // 2 - cy)))
+        # Meteor targets: telegraph circle + falling meteor sprite at each impact position until trigger
+        METEOR_FALL_HEIGHT = 180.0
+        for imp in self._meteor_impacts:
+            if self._room_time >= imp["trigger_at"]:
+                continue
+            mx, my = imp["x"], imp["y"]
+            telegraph_sec = imp.get("telegraph_sec", 1.0)
+            start_at = imp.get("start_at", imp["trigger_at"] - telegraph_sec)
+            progress = 1.0 - (imp["trigger_at"] - self._room_time) / telegraph_sec if telegraph_sec > 0 else 1.0
+            progress = max(0.0, min(1.0, progress))
+            if self._boss_telegraph_meteor_target is not None:
+                surf = self._boss_telegraph_meteor_target
+                screen.blit(surf, (int(mx - surf.get_width() // 2 - cx), int(my - surf.get_height() // 2 - cy)))
+            if self._boss_meteor_sprite is not None:
+                fall_y = my - (1.0 - progress) * METEOR_FALL_HEIGHT
+                surf = self._boss_meteor_sprite
+                screen.blit(surf, (int(mx - surf.get_width() // 2 - cx), int(fall_y - surf.get_height() // 2 - cy)))
+
+    def _draw_boss_fx_overlays(self, screen: pygame.Surface, co: tuple[float, float]) -> None:
+        """Draw boss spawn, death, teleport FX and meteor impact sprites (after entities)."""
+        self._ensure_boss_fx_loaded()
+        cx, cy = co
+        # Spawn FX: portal then explosion at spawn position (skip placeholder surfaces to avoid grey box)
+        if self._boss_spawn_fx_timer > 0.0 and self._boss_spawn_fx_pos is not None:
+            sx, sy = self._boss_spawn_fx_pos
+            if self._boss_spawn_fx_timer > 0.4 and self._boss_fx_spawn_portal is not None and not self._is_placeholder_surface(self._boss_fx_spawn_portal):
+                surf = self._boss_fx_spawn_portal
+                screen.blit(surf, (int(sx - surf.get_width() // 2 - cx), int(sy - surf.get_height() // 2 - cy)))
+            elif self._boss_fx_spawn_explosion is not None and not self._is_placeholder_surface(self._boss_fx_spawn_explosion):
+                surf = self._boss_fx_spawn_explosion
+                screen.blit(surf, (int(sx - surf.get_width() // 2 - cx), int(sy - surf.get_height() // 2 - cy)))
+        # Death FX: explosion, energy, particles at death position
+        if self._boss_death_fx_timer > 0.0 and self._boss_death_fx_pos is not None:
+            dx, dy = self._boss_death_fx_pos
+            if self._boss_fx_death_explosion is not None:
+                surf = self._boss_fx_death_explosion
+                screen.blit(surf, (int(dx - surf.get_width() // 2 - cx), int(dy - surf.get_height() // 2 - cy)))
+            if self._boss_fx_death_energy is not None:
+                surf = self._boss_fx_death_energy
+                screen.blit(surf, (int(dx - surf.get_width() // 2 - cx), int(dy - surf.get_height() // 2 - cy)))
+            if self._boss_fx_death_particles is not None:
+                surf = self._boss_fx_death_particles
+                screen.blit(surf, (int(dx - surf.get_width() // 2 - cx), int(dy - surf.get_height() // 2 - cy)))
+        # Teleport FX: flash at old position, smoke at new (one frame)
+        if self._boss_teleport_fx_frame is not None:
+            old_pos, new_pos = self._boss_teleport_fx_frame
+            ox, oy = old_pos
+            nx, ny = new_pos
+            if self._boss_fx_teleport_flash is not None:
+                surf = self._boss_fx_teleport_flash
+                screen.blit(surf, (int(ox - surf.get_width() // 2 - cx), int(oy - surf.get_height() // 2 - cy)))
+            if self._boss_fx_teleport_smoke is not None:
+                surf = self._boss_fx_teleport_smoke
+                screen.blit(surf, (int(nx - surf.get_width() // 2 - cx), int(ny - surf.get_height() // 2 - cy)))
+            if self._boss_fx_teleport_anim:
+                frame = self._boss_fx_teleport_anim[int(pygame.time.get_ticks() / 100) % len(self._boss_fx_teleport_anim)]
+                screen.blit(frame, (int(nx - frame.get_width() // 2 - cx), int(ny - frame.get_height() // 2 - cy)))
+        # Meteor impact sprites (after trigger, brief display)
+        if self._boss_meteor_impact_sprite is not None:
+            for m in self._meteor_impact_display:
+                surf = self._boss_meteor_impact_sprite
+                screen.blit(surf, (int(m["x"] - surf.get_width() // 2 - cx), int(m["y"] - surf.get_height() // 2 - cy)))
+
     def _hp_color(self, hp_ratio: float, is_player: bool) -> tuple[int, int, int]:
         """Return high-contrast HP color for dark dungeon, separate palettes for player/enemies."""
         r = max(0.0, min(1.0, hp_ratio))
@@ -1175,9 +1910,14 @@ class GameScene(BaseScene):
             return (0, 200, 170)          # teal
 
     def _draw_player_health_bar(self, screen: pygame.Surface) -> None:
-        """HUD player health bar: 100 HP = full bar; overheal (100–130) shown as extra segment."""
+        """HUD player health bar at top: [Player Health] [bar] [value]; overheal (100–130) shown as extra segment."""
         if self._player is None or getattr(self._player, "base_max_hp", 0) <= 0:
             return
+        try:
+            font = pygame.font.Font("assets/fonts/PixelifySans-Variable.ttf", 16)
+        except (pygame.error, OSError):
+            font = pygame.font.SysFont("arial", 14)
+
         base_max_hp = float(getattr(self._player, "base_max_hp", 1.0))
         overheal_cap = base_max_hp * SAFE_ROOM_OVERHEAL_CAP_RATIO
         hp = max(0.0, float(self._player.hp))
@@ -1189,10 +1929,26 @@ class GameScene(BaseScene):
         bar_w = 300
         bar_h = 18
         border = 2
-        x = (LOGICAL_W - bar_w) // 2
-        y = LOGICAL_H - 20 - bar_h
-        outer = pygame.Rect(x, y, bar_w, bar_h)
+        top_margin = 14
+        gap = 12
+
+        label_text = font.render("Player Health", True, (240, 240, 240))
+        value_text = font.render(f"{int(hp)} / {int(base_max_hp)}", True, (240, 240, 240))
+
+        total_w = label_text.get_width() + gap + bar_w + gap + value_text.get_width()
+        start_x = (LOGICAL_W - total_w) / 2
+
+        bar_x = start_x + label_text.get_width() + gap
+        bar_y = top_margin
+        value_x = bar_x + bar_w + gap
+
+        outer = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
         inner = outer.inflate(-2 * border, -2 * border)
+
+        label_y = top_margin + (bar_h - label_text.get_height()) // 2
+        value_y = top_margin + (bar_h - value_text.get_height()) // 2
+        screen.blit(label_text, (int(start_x), label_y))
+        screen.blit(value_text, (int(value_x), value_y))
 
         # Background (empty HP) and border
         pygame.draw.rect(screen, (40, 40, 40), inner)
@@ -1216,7 +1972,7 @@ class GameScene(BaseScene):
             glow_alpha = int(120 * (0.10 - ratio_base) / 0.10)
             glow = pygame.Surface((bar_w + 8, bar_h + 8), pygame.SRCALPHA)
             glow.fill((255, 40, 40, glow_alpha))
-            screen.blit(glow, (x - 4, y - 4))
+            screen.blit(glow, (bar_x - 4, bar_y - 4))
 
     def _draw_enemy_hit_zones(self, screen: pygame.Surface, camera_offset: tuple[float, float]) -> None:
         """Legacy enemy hit-zone circles (no longer used for damage)."""
@@ -1234,8 +1990,8 @@ class GameScene(BaseScene):
                 continue
             if getattr(enemy, "is_training_dummy", False):
                 continue
-            # Mini boss already has a dedicated HUD bar at top; skip its per-sprite bar.
-            if isinstance(enemy, (MiniBoss, MiniBoss2)):
+            # Mini boss / Final Boss already have dedicated HUD bars at top; skip per-sprite bar.
+            if isinstance(enemy, (MiniBoss, MiniBoss2, Biome3MiniBoss, FinalBoss)):
                 continue
             max_hp = float(getattr(enemy, "max_hp", 0.0))
             if max_hp <= 0.0:
@@ -1273,8 +2029,19 @@ class GameScene(BaseScene):
             self._ensure_gameplay_bg()
             if self._gameplay_bg is not None:
                 screen.blit(self._gameplay_bg, (0, 0))
+        # Biome 4 Phase 2: optional backdrop behind tile grid (rooms 24-29).
+        room = self._room_controller.current_room if self._room_controller else None
+        room_idx = self._room_controller.current_room_index if self._room_controller else -1
+        if room is not None and getattr(room, "biome_index", 1) == 4 and room_idx >= 0:
+            bg = get_biome4_background(room_idx)
+            if bg is not None:
+                screen.blit(bg, (0, 0))
         # Wall border is now drawn inside each room grid (1-tile thick), so no outside border here.
         self._draw_room_tiles_and_doors(screen, co)
+        # Biome 4 Phase 2: hazard overlays (lava/slow) and props after tile grid.
+        if room is not None and getattr(room, "biome_index", 1) == 4:
+            self._draw_biome4_hazard_overlays(screen, co)
+            self._draw_biome4_props(screen, co)
         # Room 0 props on top of background (Requirements §9.3): altar (center)
         if (
             self._room_controller is not None
@@ -1312,9 +2079,19 @@ class GameScene(BaseScene):
                 surf = self._heal_object_surf.copy()
                 surf.set_alpha(min(255, alpha))
                 screen.blit(surf, (sx, sy))
+        # Biome 4 Phase 2: set current biome so elites draw red aura in Biome 4 only.
+        if room is not None:
+            enemy_base_module.CURRENT_BIOME_INDEX = getattr(room, "biome_index", 1)
+        else:
+            enemy_base_module.CURRENT_BIOME_INDEX = 1
+        # Boss telegraphs and meteor targets (before enemies, so under boss)
+        if room is not None and room.room_type == RoomType.FINAL_BOSS:
+            self._draw_boss_telegraphs_and_meteor_targets(screen, co)
         # Draw enemies before player per render order
         for enemy in self._enemies:
             enemy.draw(screen, co)
+        for p in self._projectiles:
+            p.draw(screen, co)
         # Enemy health bars above sprites
         self._draw_enemy_health_bars(screen, co)
         # Room 0: label above training dummy so it's visible (Requirements §9.5)
@@ -1338,6 +2115,9 @@ class GameScene(BaseScene):
             self._player.draw(screen, co)
         # VFX layer (slash, hit sparks) after entities
         self._vfx.draw(screen, co)
+        # Boss spawn/death/teleport/meteor impact FX (on top of entities)
+        if room is not None and room.room_type == RoomType.FINAL_BOSS:
+            self._draw_boss_fx_overlays(screen, co)
         # Green flash when Safe Room heal is collected
         if self._heal_flash_timer > 0:
             alpha = int(100 * (self._heal_flash_timer / 0.35))
@@ -1415,8 +2195,36 @@ class GameScene(BaseScene):
             else:
                 pygame.draw.circle(screen, (255, 220, 100), (sx, sy), half - 4)
         # Phase 6: mini boss health bar (top-center, screen-space)
-        mini_boss = next((e for e in self._enemies if isinstance(e, (MiniBoss, MiniBoss2))), None)
-        if mini_boss is not None and not getattr(mini_boss, "inactive", False):
+        final_boss = next((e for e in self._enemies if isinstance(e, FinalBoss)), None)
+        mini_boss = next((e for e in self._enemies if isinstance(e, (MiniBoss, MiniBoss2, Biome3MiniBoss))), None)
+        # Boss health bar: visible whenever encounter is active (not truly dead). Stays visible during teleport and revive_wait.
+        if final_boss is not None and not getattr(final_boss, "inactive", False):
+            self._ensure_boss_ui_loaded()
+            if self._boss_ui_frame is not None and self._boss_ui_fill is not None:
+                fx, fy = BIOME4_BOSS_UI_ANCHOR_X, BIOME4_BOSS_UI_ANCHOR_Y
+                fw, fh = BIOME4_BOSS_UI_ANCHOR_W, BIOME4_BOSS_UI_ANCHOR_H
+                screen.blit(self._boss_ui_frame, (fx, fy))
+                ratio = max(0.0, min(1.0, final_boss.hp / max(1e-6, final_boss.max_hp)))
+                fill_w = max(1, int((fw - 4) * ratio))
+                if fill_w > 0:
+                    fill_surf = pygame.transform.smoothscale(
+                        self._boss_ui_fill, (fill_w, fh - 20)
+                    )
+                    screen.blit(fill_surf, (fx + 2, fy + 10))
+            # Boss name banner: same visibility as health bar (visible during teleport and revive_wait).
+            if self._boss_name_banner is not None:
+                bw, bh = self._boss_name_banner.get_size()
+                screen.blit(self._boss_name_banner, (LOGICAL_W // 2 - bw // 2, BIOME4_BOSS_UI_ANCHOR_Y - bh - 4))
+        # Center-screen revive message (before boss reappears)
+        if getattr(self, "_boss_revive_message_until", 0) > 0 and self._room_time < self._boss_revive_message_until:
+            try:
+                revive_font = pygame.font.Font("assets/fonts/PixelifySans-Variable.ttf", 44)
+            except (pygame.error, OSError):
+                revive_font = pygame.font.SysFont("arial", 40)
+            revive_text = revive_font.render("THE BOSS RISES AGAIN", True, (255, 220, 80))
+            tw, th = revive_text.get_size()
+            screen.blit(revive_text, (LOGICAL_W // 2 - tw // 2, LOGICAL_H // 2 - th // 2))
+        elif mini_boss is not None and not getattr(mini_boss, "inactive", False):
             self._ensure_mini_boss_bar_loaded()
             if self._mini_boss_bar_frame is not None and self._mini_boss_bar_fill is not None:
                 frame_x = LOGICAL_W // 2 - 200
@@ -1550,6 +2358,88 @@ class GameScene(BaseScene):
             prompt_text = font.render("Press [H] to gain Health Upgrade (+30%)", True, (240, 240, 240))
             tw, th = prompt_text.get_size()
             screen.blit(prompt_text, (LOGICAL_W // 2 - tw // 2, LOGICAL_H // 2 - 80 + (48 - th) // 2))
+        # Biome 3 Room 21 safe room: 3 upgrade choices (pick one with 1/2/3)
+        if (
+            self._room_controller is not None
+            and self._room_controller.current_room is not None
+            and self._room_controller.current_room_index == BIOME3_SAFE_ROOM_INDEX
+            and self._room_controller.current_room.room_type == RoomType.SAFE
+            and not self._safe_room_upgrade_chosen_this_room
+            and self._player is not None
+        ):
+            self._ensure_safe_room_upgrade_icons_loaded()
+            self._ensure_room0_prop_surfaces()
+            # Panel: title + 3 options with icons (deterministic order: 1=Health, 2=Speed, 3=Attack)
+            panel_w, panel_h = 380, 160
+            panel_x = (LOGICAL_W - panel_w) // 2
+            panel_y = (LOGICAL_H - panel_h) // 2
+            panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+            panel.fill((40, 40, 50, 220))
+            pygame.draw.rect(panel, (180, 180, 200), (0, 0, panel_w, panel_h), 2)
+            screen.blit(panel, (panel_x, panel_y))
+            try:
+                title_font = pygame.font.Font("assets/fonts/PixelifySans-Variable.ttf", 18)
+                row_font = pygame.font.Font("assets/fonts/PixelifySans-Variable.ttf", 16)
+            except (pygame.error, OSError):
+                title_font = pygame.font.SysFont("arial", 16)
+                row_font = pygame.font.SysFont("arial", 14)
+            title = title_font.render("Choose one upgrade (1, 2, or 3)", True, (240, 240, 240))
+            screen.blit(title, (panel_x + (panel_w - title.get_width()) // 2, panel_y + 12))
+            row_y = panel_y + 44
+            icon_size = 24
+            options = [
+                (self._safe_room_upgrade_icon_health, "1. Health +20% max HP"),
+                (self._safe_room_upgrade_icon_speed, "2. Speed +10% movement"),
+                (self._safe_room_upgrade_icon_attack, "3. Attack +12% damage"),
+            ]
+            for icon_surf, label in options:
+                if icon_surf is not None:
+                    screen.blit(icon_surf, (panel_x + 24, row_y - 2))
+                txt = row_font.render(label, True, (220, 220, 220))
+                screen.blit(txt, (panel_x + 24 + icon_size + 12, row_y))
+                row_y += 36
+        # Biome 4 Room 28 safe room: 4 upgrade options, choose exactly 2 (1/2/3/4)
+        if (
+            self._room_controller is not None
+            and self._room_controller.current_room is not None
+            and self._room_controller.current_room_index == BIOME4_SAFE_ROOM_INDEX
+            and self._room_controller.current_room.room_type == RoomType.SAFE
+            and not self._safe_room_upgrade_chosen_this_room
+            and self._player is not None
+            and (getattr(self, "_safe_room_upgrade_pending", False) or getattr(self, "_safe_room_biome4_picks_remaining", 0) > 0)
+        ):
+            self._ensure_safe_room_upgrade_icons_loaded()
+            self._ensure_room0_prop_surfaces()
+            panel_w, panel_h = 400, 200
+            panel_x = (LOGICAL_W - panel_w) // 2
+            panel_y = (LOGICAL_H - panel_h) // 2
+            panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+            panel.fill((40, 40, 50, 220))
+            pygame.draw.rect(panel, (180, 180, 200), (0, 0, panel_w, panel_h), 2)
+            screen.blit(panel, (panel_x, panel_y))
+            try:
+                title_font = pygame.font.Font("assets/fonts/PixelifySans-Variable.ttf", 18)
+                row_font = pygame.font.Font("assets/fonts/PixelifySans-Variable.ttf", 16)
+            except (pygame.error, OSError):
+                title_font = pygame.font.SysFont("arial", 16)
+                row_font = pygame.font.SysFont("arial", 14)
+            picks_left = getattr(self, "_safe_room_biome4_picks_remaining", 0)
+            title = title_font.render(f"Choose two upgrades (1-4) — {picks_left} left", True, (240, 240, 240))
+            screen.blit(title, (panel_x + (panel_w - title.get_width()) // 2, panel_y + 12))
+            row_y = panel_y + 44
+            icon_size = 24
+            options_b4 = [
+                (self._safe_room_upgrade_icon_health, "1. Health +20% max HP"),
+                (self._safe_room_upgrade_icon_speed, "2. Speed +10% movement"),
+                (self._safe_room_upgrade_icon_attack, "3. Attack +12% damage"),
+                (self._safe_room_upgrade_icon_defence, "4. Defence -12% incoming damage"),
+            ]
+            for icon_surf, label in options_b4:
+                if icon_surf is not None:
+                    screen.blit(icon_surf, (panel_x + 24, row_y - 2))
+                txt = row_font.render(label, True, (220, 220, 220))
+                screen.blit(txt, (panel_x + 24 + icon_size + 12, row_y))
+                row_y += 36
         # Room 0: "Press [E] to Read" when near altar (Requirements §9.4.1)
         if (
             not self._room0_story_panel_open
@@ -1591,7 +2481,7 @@ class GameScene(BaseScene):
                 panel_font_title = pygame.font.SysFont("georgia", 20)
             if panel_rect is not None:
                 inner_margin_x = 80
-                inner_margin_y = 80
+                inner_margin_y = 56
                 margin_left = panel_rect.x + inner_margin_x
                 margin_right = panel_rect.x + panel_rect.w - inner_margin_x
                 max_w = max(100, margin_right - margin_left)
@@ -1628,6 +2518,17 @@ class GameScene(BaseScene):
             close_hint = close_hint_font.render("Press E or ESC to close", True, (180, 180, 180))
             screen.blit(close_hint, (LOGICAL_W // 2 - close_hint.get_width() // 2, LOGICAL_H - 60))
 
+        # Phase 3: victory overlay (after beating final boss, last room exit)
+        if self._victory_phase:
+            self._ensure_boss_ui_loaded()
+            center_x, center_y = LOGICAL_W // 2, LOGICAL_H // 2
+            if self._victory_bg is not None:
+                bg_rect = self._victory_bg.get_rect(center=(center_x, center_y))
+                screen.blit(self._victory_bg, bg_rect.topleft)
+            if self._victory_banner is not None:
+                banner_rect = self._victory_banner.get_rect(center=(center_x, center_y))
+                screen.blit(self._victory_banner, banner_rect.topleft)
+
         # Death sequence overlays
         if self._death_phase is not None:
             # Keep the world fully bright so elites and their yellow glow never look greyed out.
@@ -1647,8 +2548,8 @@ class GameScene(BaseScene):
             if event.key in (pygame.K_e, pygame.K_ESCAPE):
                 self._room0_story_panel_open = False
                 return True
-        # During death sequence, ignore player input (contract: input disabled).
-        if self._death_phase is not None:
+        # During death or victory sequence, ignore player input.
+        if self._death_phase is not None or self._victory_phase:
             return True
         if event.type == pygame.KEYDOWN:
             self._keys_held.add(event.key)
@@ -1667,6 +2568,9 @@ class GameScene(BaseScene):
                     self._player.hp += heal_amount
                     self._safe_room_heal_done = True
                     self._safe_room_upgrade_pending = True
+                    if self._room_controller.current_room_index == BIOME4_SAFE_ROOM_INDEX:
+                        self._safe_room_biome4_picks_remaining = 2
+                        self._safe_room_biome4_chosen = set()
                     self._vfx.spawn_floating_text(self._safe_room_heal_pos, "+30% Health", (80, 255, 120))
                     self._heal_flash_timer = 0.35
                     return True
@@ -1693,6 +2597,54 @@ class GameScene(BaseScene):
                     self._room0_story_panel_open = False
                     return True
                 pygame.event.post(pygame.event.Event(pygame.QUIT))
+                return True
+            # Biome 4 Room 28 safe room: 4 options, choose exactly 2 (1/2/3/4)
+            if (
+                self._room_controller is not None
+                and self._room_controller.current_room is not None
+                and self._room_controller.current_room_index == BIOME4_SAFE_ROOM_INDEX
+                and self._room_controller.current_room.room_type == RoomType.SAFE
+                and not self._safe_room_upgrade_chosen_this_room
+                and self._player is not None
+                and event.key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4)
+            ):
+                choice = (event.key - pygame.K_1) + 1  # 1, 2, 3, or 4
+                if choice not in self._safe_room_biome4_chosen:
+                    if choice == 1:
+                        self._player.base_max_hp *= SAFE_ROOM_UPGRADE_HEALTH_MULT
+                        self._player.max_hp = self._player.base_max_hp
+                        self._player.hp = min(self._player.hp, self._player.max_hp)
+                    elif choice == 2:
+                        self._player.move_speed_mult = SAFE_ROOM_UPGRADE_SPEED_MULT
+                    elif choice == 3:
+                        self._player.attack_damage_mult = SAFE_ROOM_UPGRADE_ATTACK_MULT
+                    elif choice == 4:
+                        self._player.damage_taken_mult = SAFE_ROOM_UPGRADE_DEFENCE_MULT
+                    self._safe_room_biome4_chosen.add(choice)
+                    self._safe_room_biome4_picks_remaining = max(0, self._safe_room_biome4_picks_remaining - 1)
+                    if len(self._safe_room_biome4_chosen) >= 2:
+                        self._safe_room_upgrade_chosen_this_room = True
+                return True
+            # Biome 3 Room 21 safe room: 1=Health, 2=Speed, 3=Attack (pick one)
+            if (
+                self._room_controller is not None
+                and self._room_controller.current_room is not None
+                and self._room_controller.current_room_index == BIOME3_SAFE_ROOM_INDEX
+                and self._room_controller.current_room.room_type == RoomType.SAFE
+                and not self._safe_room_upgrade_chosen_this_room
+                and self._player is not None
+                and event.key in (pygame.K_1, pygame.K_2, pygame.K_3)
+            ):
+                choice = (event.key - pygame.K_1) + 1  # 1, 2, or 3
+                if choice == 1:  # Health +20% max HP
+                    self._player.base_max_hp *= SAFE_ROOM_UPGRADE_HEALTH_MULT
+                    self._player.max_hp = self._player.base_max_hp
+                    self._player.hp = min(self._player.hp, self._player.max_hp)
+                elif choice == 2:  # Speed +10%
+                    self._player.move_speed_mult = SAFE_ROOM_UPGRADE_SPEED_MULT
+                elif choice == 3:  # Attack +12%
+                    self._player.attack_damage_mult = SAFE_ROOM_UPGRADE_ATTACK_MULT
+                self._safe_room_upgrade_chosen_this_room = True
                 return True
             if getattr(self, "_safe_room_upgrade_pending", False) and event.key in (pygame.K_1, pygame.K_2):
                 self._safe_room_upgrade_pending = False

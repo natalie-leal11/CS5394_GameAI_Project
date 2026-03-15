@@ -133,8 +133,8 @@ class SpawnSystem:
                     enemy.world_pos = (world_x, world_y)
 
                 enemies.append(enemy)
-                # Play spawn portal VFX at the final spawn position.
-                self._vfx.spawn_portal((world_x, world_y))
+                # Play spawn portal VFX at the final spawn position (Biome 4 may use summon circle for elites).
+                self._vfx.spawn_portal((world_x, world_y), is_elite=slot.elite)
                 slot.completed = True
 
     def all_spawns_completed(self) -> bool:

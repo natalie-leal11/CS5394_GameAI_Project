@@ -210,6 +210,17 @@ class VfxManager:
         self._portal_fps = 12
         self._portal_lifetime = (len(self._portal_frames) / float(self._portal_fps)) if self._portal_frames else 0.0
 
+        # Biome 4 Phase 2: spawn portal/telegraph/summon assets (lazy-loaded when first needed).
+        self._use_biome4_spawn_visuals = False
+        self._telegraph_tile_biome4 = None
+        self._telegraph_tile_elite_biome4 = None
+        self._portal_frames_biome4 = None
+        self._portal_biome4_fps = 12
+        self._portal_biome4_lifetime = 0.0
+        self._summon_circle_frames_biome4 = None
+        self._summon_circle_biome4_fps = 12
+        self._summon_circle_biome4_lifetime = 0.0
+
         # Load damage-number font (font_damage.ttf), with a safe fallback.
         font_path = os.path.join(PROJECT_ROOT, "assets", "ui", "damage_numbers", "font_damage.ttf")
         try:
@@ -233,6 +244,94 @@ class VfxManager:
         anim.set_animation(frames, fps=16, loop=False)
         self._instances.append(VfxInstance(world_pos, frames, anim, lifetime=0.25))
 
+    def set_biome4_spawn_visuals(self, use: bool) -> None:
+        """When True, use Biome 4 spawn portal/telegraph assets (rooms 24-29)."""
+        self._use_biome4_spawn_visuals = use
+        if use and self._portal_frames_biome4 is None:
+            self._ensure_biome4_spawn_assets()
+
+    def _ensure_biome4_spawn_assets(self) -> None:
+        """Lazy-load Biome 4 spawn assets from assets/effects/spawn/. Fail gracefully if missing."""
+        if self._portal_frames_biome4 is not None:
+            return
+        spawn_dir = os.path.join(PROJECT_ROOT, "assets", "effects", "spawn")
+        telegraph_size = (TILE_SIZE, TILE_SIZE)
+        portal_size = (TILE_SIZE * 2, TILE_SIZE * 2)
+        try:
+            t_path = os.path.join(spawn_dir, "telegraph_tile_32x32.png")
+            if os.path.isfile(t_path):
+                self._telegraph_tile_biome4 = load_image(
+                    "assets/effects/spawn/telegraph_tile_32x32.png",
+                    size=telegraph_size,
+                    use_colorkey=True,
+                    colorkey_color=(255, 255, 255),
+                    near_white_threshold=0,
+                    corner_bg_tolerance=50,
+                    exact_size=True,
+                )
+        except Exception:
+            pass
+        try:
+            te_path = os.path.join(spawn_dir, "telegraph_elite_red_32x32.png")
+            if os.path.isfile(te_path):
+                self._telegraph_tile_elite_biome4 = load_image(
+                    "assets/effects/spawn/telegraph_elite_red_32x32.png",
+                    size=telegraph_size,
+                    use_colorkey=True,
+                    colorkey_color=(255, 255, 255),
+                    near_white_threshold=0,
+                    corner_bg_tolerance=50,
+                    exact_size=True,
+                )
+        except Exception:
+            pass
+        frames = []
+        for name in ("spawn_portal_64x64.png", "spawn_portal_anim_64x64.png"):
+            p = os.path.join(spawn_dir, name)
+            if os.path.isfile(p):
+                try:
+                    surf = load_image(
+                        f"assets/effects/spawn/{name}",
+                        size=portal_size,
+                        use_colorkey=True,
+                        colorkey_color=(255, 255, 255),
+                        near_white_threshold=0,
+                        corner_bg_tolerance=50,
+                        exact_size=True,
+                    )
+                    if surf:
+                        frames.append(surf)
+                except Exception:
+                    pass
+        if frames:
+            self._portal_frames_biome4 = frames
+            self._portal_biome4_fps = 12
+            self._portal_biome4_lifetime = len(frames) / float(self._portal_biome4_fps)
+        # Summon circle (128x128) for Biome 4 elite / boss add summoning.
+        summon_size = (128, 128)
+        summon_frames = []
+        for name in ("summon_circle_128x128.png", "summon_circle_anim_128x128.png"):
+            p = os.path.join(spawn_dir, name)
+            if os.path.isfile(p):
+                try:
+                    surf = load_image(
+                        f"assets/effects/spawn/{name}",
+                        size=summon_size,
+                        use_colorkey=True,
+                        colorkey_color=(255, 255, 255),
+                        near_white_threshold=0,
+                        corner_bg_tolerance=50,
+                        exact_size=True,
+                    )
+                    if surf:
+                        summon_frames.append(surf)
+                except Exception:
+                    pass
+        if summon_frames:
+            self._summon_circle_frames_biome4 = summon_frames
+            self._summon_circle_biome4_fps = 12
+            self._summon_circle_biome4_lifetime = len(summon_frames) / float(self._summon_circle_biome4_fps)
+
     def spawn_telegraph(
         self,
         world_pos: Tuple[float, float],
@@ -240,7 +339,12 @@ class VfxManager:
         duration_sec: float | None = None,
     ) -> None:
         """Spawn a tile telegraph for Phase 5 enemy spawns. Visual only: no collision."""
-        surf = self._telegraph_tile_elite if is_elite and self._telegraph_tile_elite is not None else self._telegraph_tile
+        surf = None
+        if self._use_biome4_spawn_visuals:
+            self._ensure_biome4_spawn_assets()
+            surf = self._telegraph_tile_elite_biome4 if is_elite and self._telegraph_tile_elite_biome4 else self._telegraph_tile_biome4
+        if surf is None:
+            surf = self._telegraph_tile_elite if is_elite and self._telegraph_tile_elite is not None else self._telegraph_tile
         if surf is None:
             return
         duration = duration_sec if duration_sec is not None else SPAWN_TELEGRAPH_DURATION_SEC
@@ -253,13 +357,26 @@ class VfxManager:
             )
         )
 
-    def spawn_portal(self, world_pos: Tuple[float, float]) -> None:
-        """Spawn a portal animation at the spawn location (visual only)."""
-        if not self._portal_frames or self._portal_lifetime <= 0.0:
+    def spawn_portal(self, world_pos: Tuple[float, float], is_elite: bool = False) -> None:
+        """Spawn a portal animation at the spawn location (visual only). In Biome 4, elite spawns may use summon circle."""
+        frames = self._portal_frames
+        fps = self._portal_fps
+        lifetime = self._portal_lifetime
+        if self._use_biome4_spawn_visuals:
+            self._ensure_biome4_spawn_assets()
+            if is_elite and self._summon_circle_frames_biome4 and self._summon_circle_biome4_lifetime > 0.0:
+                frames = self._summon_circle_frames_biome4
+                fps = self._summon_circle_biome4_fps
+                lifetime = self._summon_circle_biome4_lifetime
+            elif self._portal_frames_biome4 and self._portal_biome4_lifetime > 0.0:
+                frames = self._portal_frames_biome4
+                fps = self._portal_biome4_fps
+                lifetime = self._portal_biome4_lifetime
+        if not frames or lifetime <= 0.0:
             return
         anim = AnimationState()
-        anim.set_animation(self._portal_frames, fps=self._portal_fps, loop=False)
-        self._instances.append(VfxInstance(world_pos, self._portal_frames, anim, lifetime=self._portal_lifetime))
+        anim.set_animation(frames, fps=fps, loop=False)
+        self._instances.append(VfxInstance(world_pos, frames, anim, lifetime=lifetime))
 
     def spawn_damage_number(self, amount: float, world_pos: Tuple[float, float], is_player: bool) -> None:
         """Spawn a floating damage number.

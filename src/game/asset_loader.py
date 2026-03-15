@@ -286,3 +286,50 @@ def load_animation(
     if not frames:
         frames.append(_make_placeholder(size))
     return frames
+
+
+def load_animation_by_prefix(
+    folder_path: str,
+    file_prefix: str,
+    size: tuple[int, int] | None = None,
+    use_colorkey: bool = False,
+    colorkey_color: tuple[int, int, int] = (255, 255, 255),
+    near_white_threshold: int = 0,
+    corner_bg_tolerance: int = 0,
+    strip_flat_bg: bool = False,
+) -> list[pygame.Surface]:
+    """
+    Load ALL animation frames from a flat folder where frames are named prefix_1.png, prefix_2.png, etc.
+    No frame limit: every file matching prefix_* with image extension is loaded.
+    Frames are sorted in numeric order (prefix_1, prefix_2, ..., prefix_10) via _natural_sort_key.
+    Used for assets like biome3_miniboss (idle_1, move_1, attack1_1, ...).
+    """
+    if folder_path and not os.path.isabs(folder_path):
+        folder_path = os.path.normpath(os.path.join(PROJECT_ROOT, folder_path))
+    frames = []
+    if not folder_path or not os.path.isdir(folder_path):
+        frames.append(_make_placeholder(size))
+        return frames
+    entries = [
+        name for name in os.listdir(folder_path)
+        if name.startswith(file_prefix + "_") and name.endswith((".png", ".jpg", ".jpeg", ".gif"))
+    ]
+    entries.sort(key=_natural_sort_key)
+    for name in entries:
+        path = os.path.join(folder_path, name)
+        surf = _load_surface(path)
+        if surf is None:
+            surf = _load_surface(PLACEHOLDER_IMAGE)
+        if surf is None:
+            surf = _make_placeholder(size)
+        else:
+            surf = _convert_and_scale(
+                surf, size=size, use_colorkey=use_colorkey, colorkey_color=colorkey_color,
+                near_white_threshold=near_white_threshold,
+                corner_bg_tolerance=corner_bg_tolerance,
+                strip_flat_bg=strip_flat_bg,
+            )
+        frames.append(surf)
+    if not frames:
+        frames.append(_make_placeholder(size))
+    return frames

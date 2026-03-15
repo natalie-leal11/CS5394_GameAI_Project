@@ -5,6 +5,7 @@ from typing import Tuple
 
 import pygame
 
+from entities.enemy_base import apply_anti_stuck_velocity, update_stuck_tracking
 from game.config import (
     MINI_BOSS_SIZE,
     MINI_BOSS_BASE_HP,
@@ -50,6 +51,8 @@ class MiniBoss2:
         self.facing = (1.0, 0.0)
         self.attack_cooldown_timer = 0.0
         self._player_dead = False
+        self._last_world_pos = None
+        self._stuck_frames = 0
 
         self._animations: dict[str, list[pygame.Surface]] = {}
         self._anim_state = AnimationState()
@@ -136,6 +139,7 @@ class MiniBoss2:
 
         px, py = player.world_pos
         x, y = self.world_pos
+        start_pos = (x, y)
         dx = px - x
         dy = py - y
         dist = math.hypot(dx, dy)
@@ -159,11 +163,12 @@ class MiniBoss2:
             if self.attack_cooldown_timer <= 0.0:
                 next_attack = "attack_02" if self.state == "attack_01" else "attack_01"
                 self._set_state(next_attack)
-                self.attack_cooldown_timer = MINI_BOSS_ATTACK_COOLDOWN_SEC
+                # Do NOT set attack_cooldown_timer here; combat sets it when damage is applied.
             else:
                 self._set_state("idle")
             vx = vy = 0.0
 
+        vx, vy = apply_anti_stuck_velocity(self, vx, vy)
         self.velocity_xy = (vx, vy)
         x += vx * dt
         y += vy * dt
@@ -180,6 +185,7 @@ class MiniBoss2:
         x = max(min_x, min(max_x, x))
         y = max(min_y, min(max_y, y))
         self.world_pos = (x, y)
+        update_stuck_tracking(self, start_pos)
 
         self._anim_state.advance(dt)
 

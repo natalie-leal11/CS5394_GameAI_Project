@@ -1,29 +1,41 @@
 import math
+import os
+import random
 from typing import Tuple
 
 import pygame
 
 from game.config import (
+    PROJECT_ROOT,
+    HEAVY_UNSTUCK_RETREAT_DURATION_SEC,
+    HEAVY_CLEARANCE_PADDING_PX,
+    HEAVY_REROUTE_CACHE_SEC,
+    HEAVY_STUCK_TIME_SEC,
     ENEMY_SWARM_SIZE,
     ENEMY_FLANKER_SIZE,
     ENEMY_BRUTE_SIZE,
     ENEMY_HEAVY_SIZE,
+    ENEMY_RANGED_SIZE,
     ENEMY_SWARM_BASE_HP,
     ENEMY_FLANKER_BASE_HP,
     ENEMY_BRUTE_BASE_HP,
     ENEMY_HEAVY_BASE_HP,
+    ENEMY_RANGED_BASE_HP,
     ENEMY_SWARM_BASE_DAMAGE,
     ENEMY_FLANKER_BASE_DAMAGE,
     ENEMY_BRUTE_BASE_DAMAGE,
     ENEMY_HEAVY_BASE_DAMAGE,
+    ENEMY_RANGED_BASE_DAMAGE,
     ENEMY_SWARM_MOVE_SPEED,
     ENEMY_FLANKER_MOVE_SPEED,
     ENEMY_BRUTE_MOVE_SPEED,
     ENEMY_HEAVY_MOVE_SPEED,
+    ENEMY_RANGED_MOVE_SPEED,
     ENEMY_SWARM_STOP_DISTANCE,
     ENEMY_FLANKER_STOP_DISTANCE,
     ENEMY_BRUTE_STOP_DISTANCE,
     ENEMY_HEAVY_STOP_DISTANCE,
+    ENEMY_RANGED_STOP_DISTANCE,
     ENEMY_CONTACT_DAMAGE_INTERVAL_SEC,
     ENEMY_ELITE_HP_MULT,
     ENEMY_ELITE_DAMAGE_MULT,
@@ -49,14 +61,123 @@ from game.asset_loader import load_animation, load_image
 from systems.animation import AnimationState
 from systems.collisions import hitbox_overlap
 
+# Anti-stuck: movement < this many px for STUCK_FRAME_COUNT frames in a row = stuck
+STUCK_MOVEMENT_THRESHOLD_PX = 3.0
+STUCK_FRAME_COUNT = 20
+# Heavy: require longer stuck time before retreat (0.5–0.8 s)
+STUCK_FRAME_COUNT_HEAVY = max(STUCK_FRAME_COUNT, int(HEAVY_STUCK_TIME_SEC * 60))
+# Random steering when stuck: rotate velocity by ± this many degrees to slide along wall
+STUCK_STEERING_ANGLE_DEG = 70.0
 
-ENEMY_TYPES = ("swarm", "flanker", "brute", "heavy")
+
+def _apply_stuck_steering(vx: float, vy: float) -> Tuple[float, float]:
+    """Apply a random steering angle to (vx, vy) to help escape obstacles. Keeps same speed."""
+    speed = math.hypot(vx, vy)
+    if speed < 1e-6:
+        return (vx, vy)
+    angle_rad = math.atan2(vy, vx)
+    deg = random.uniform(-STUCK_STEERING_ANGLE_DEG, STUCK_STEERING_ANGLE_DEG)
+    angle_rad += math.radians(deg)
+    return (math.cos(angle_rad) * speed, math.sin(angle_rad) * speed)
+
+
+def apply_anti_stuck_velocity(entity, vx: float, vy: float) -> Tuple[float, float]:
+    """If entity is stuck (many frames of low movement), apply random steering and return new (vx, vy)."""
+    stuck_frames = getattr(entity, "_stuck_frames", 0)
+    if stuck_frames >= STUCK_FRAME_COUNT and (vx * vx + vy * vy) > 1e-6:
+        entity._stuck_frames = 0
+        return _apply_stuck_steering(vx, vy)
+    return (vx, vy)
+
+
+def _get_retreat_direction_away_from_wall(
+    world_pos: Tuple[float, float], room_rect: pygame.Rect
+) -> Tuple[float, float]:
+    """Deterministic unit vector away from the nearest room edge. Used for Heavy unstuck (no random teleport)."""
+    x, y = world_pos
+    dist_left = x - room_rect.left
+    dist_right = room_rect.right - x
+    dist_top = y - room_rect.top
+    dist_bottom = room_rect.bottom - y
+    d_min = min(dist_left, dist_right, dist_top, dist_bottom)
+    if d_min <= 0:
+        return (1.0, 0.0)
+    if d_min == dist_left:
+        return (1.0, 0.0)
+    if d_min == dist_right:
+        return (-1.0, 0.0)
+    if d_min == dist_top:
+        return (0.0, 1.0)
+    return (0.0, -1.0)
+
+
+def update_stuck_tracking(entity, start_pos: Tuple[float, float]) -> None:
+    """Update _stuck_frames and _last_world_pos after movement. Call after setting entity.world_pos.
+    Heavy: also count stuck when chasing player but displacement < threshold (e.g. clearance rejected move)."""
+    movement_px = math.hypot(
+        entity.world_pos[0] - start_pos[0],
+        entity.world_pos[1] - start_pos[1],
+    )
+    vx, vy = getattr(entity, "velocity_xy", (0.0, 0.0))
+    has_velocity = (vx * vx + vy * vy) > 1e-6
+    # Heavy: stuck if (chasing and displacement < threshold) even when velocity was zeroed by clearance
+    is_heavy_chasing = getattr(entity, "_heavy_chasing_this_frame", False)
+    if getattr(entity, "enemy_type", None) == "heavy" and is_heavy_chasing and movement_px < STUCK_MOVEMENT_THRESHOLD_PX:
+        entity._stuck_frames = getattr(entity, "_stuck_frames", 0) + 1
+    elif movement_px < STUCK_MOVEMENT_THRESHOLD_PX and has_velocity:
+        entity._stuck_frames = getattr(entity, "_stuck_frames", 0) + 1
+    else:
+        entity._stuck_frames = 0
+    entity._last_world_pos = entity.world_pos
+
+
+ENEMY_TYPES = ("swarm", "flanker", "brute", "heavy", "ranged")
+
+# Shared animation cache by enemy_type so multiple instances (e.g. Biome 3 boss adds) don't reload.
+_ENEMY_ANIMATION_CACHE: dict[str, dict[str, list[pygame.Surface]]] = {}
+_ATTACK_FOLDER_BY_TYPE = {"brute": "slam", "heavy": "attack_hit"}
+
+
+def _load_animations_for_type(enemy_type: str, size: Tuple[int, int]) -> dict[str, list[pygame.Surface]]:
+    """Load all animation states for an enemy type. Used by cache and preload."""
+    base_path = f"assets/entities/enemies/{enemy_type}"
+    animations: dict[str, list[pygame.Surface]] = {}
+    for state in ("idle", "walk", "attack", "hit", "death"):
+        folder_name = _ATTACK_FOLDER_BY_TYPE.get(enemy_type, state) if state == "attack" else state
+        folder = f"{base_path}/{folder_name}"
+        frames = load_animation(
+            folder,
+            size=size,
+            use_colorkey=True,
+            colorkey_color=(255, 255, 255),
+            near_white_threshold=0,
+            corner_bg_tolerance=40,
+            strip_flat_bg=True,
+        )
+        animations[state] = frames
+    idle_frames = animations["idle"]
+    if not idle_frames:
+        idle_frames = [pygame.Surface(size)]
+    for state in ("walk", "attack", "hit", "death"):
+        if not animations.get(state):
+            animations[state] = list(idle_frames)
+    return animations
+
+
+def preload_enemy_animations(enemy_type: str) -> None:
+    """Load animations for this enemy type into the shared cache. Call before spawning (e.g. Biome 3 boss adds) to avoid stall."""
+    if enemy_type in _ENEMY_ANIMATION_CACHE:
+        return
+    size = _enemy_size_for_type(enemy_type)
+    _ENEMY_ANIMATION_CACHE[enemy_type] = _load_animations_for_type(enemy_type, size)
+
 
 _TYPE_PRIORITY: dict[str, int] = {
     "swarm": 0,
     "flanker": 1,
     "brute": 2,
     "heavy": 3,
+    "ranged": 3,
     "mini_boss": 4,
     "mini_boss_2": 4,
 }
@@ -78,6 +199,15 @@ _SEPARATION_DIST: dict[tuple[str, str], float] = {
     ("brute", "heavy"): 52.0,
     ("heavy", "brute"): 52.0,
     ("heavy", "heavy"): 55.0,
+    ("ranged", "ranged"): 45.0,
+    ("swarm", "ranged"): 38.0,
+    ("ranged", "swarm"): 38.0,
+    ("flanker", "ranged"): 42.0,
+    ("ranged", "flanker"): 42.0,
+    ("brute", "ranged"): 48.0,
+    ("ranged", "brute"): 48.0,
+    ("heavy", "ranged"): 50.0,
+    ("ranged", "heavy"): 50.0,
     ("swarm", "mini_boss"): 50.0,
     ("mini_boss", "swarm"): 50.0,
     ("flanker", "mini_boss"): 55.0,
@@ -113,6 +243,25 @@ def enemy_min_separation(type_a: str, type_b: str) -> float:
 ELITE_OVERLAY_PATH = "assets/entities/enemies/elite/elite_glow_overlay.png"
 ELITE_AURA_01_PATH = "assets/entities/enemies/elite/elite_aura_01.png"
 ELITE_AURA_02_PATH = "assets/entities/enemies/elite/elite_aura_02.png"
+# Biome 4 Phase 2: red elite aura (assets/effects/elites/). Set by game_scene before drawing.
+CURRENT_BIOME_INDEX = 1
+
+# Lazy-loaded Biome 4 elite aura (64x64)
+_elite_aura_red_surf = None
+
+
+def _ensure_elite_aura_red() -> pygame.Surface | None:
+    global _elite_aura_red_surf
+    if _elite_aura_red_surf is not None:
+        return _elite_aura_red_surf
+    path = os.path.join(PROJECT_ROOT, "assets", "effects", "elites", "elite_aura_red_64x64.png")
+    if not os.path.isfile(path):
+        return None
+    try:
+        _elite_aura_red_surf = load_image("assets/effects/elites/elite_aura_red_64x64.png", size=(64, 64))
+        return _elite_aura_red_surf
+    except Exception:
+        return None
 
 
 def _enemy_size_for_type(enemy_type: str) -> Tuple[int, int]:
@@ -122,6 +271,8 @@ def _enemy_size_for_type(enemy_type: str) -> Tuple[int, int]:
         return ENEMY_FLANKER_SIZE
     if enemy_type == "heavy":
         return ENEMY_HEAVY_SIZE
+    if enemy_type == "ranged":
+        return ENEMY_RANGED_SIZE
     return ENEMY_SWARM_SIZE
 
 
@@ -132,11 +283,15 @@ def _enemy_stats_for_type(enemy_type: str) -> Tuple[float, float, float]:
         return ENEMY_FLANKER_BASE_HP, ENEMY_FLANKER_BASE_DAMAGE, ENEMY_FLANKER_MOVE_SPEED
     if enemy_type == "heavy":
         return ENEMY_HEAVY_BASE_HP, ENEMY_HEAVY_BASE_DAMAGE, ENEMY_HEAVY_MOVE_SPEED
+    if enemy_type == "ranged":
+        return ENEMY_RANGED_BASE_HP, ENEMY_RANGED_BASE_DAMAGE, ENEMY_RANGED_MOVE_SPEED
     return ENEMY_SWARM_BASE_HP, ENEMY_SWARM_BASE_DAMAGE, ENEMY_SWARM_MOVE_SPEED
 
 
 def _enemy_attack_params(enemy_type: str) -> Tuple[float, float, float]:
-    """Return (radius, offset, cooldown_sec) for melee attack."""
+    """Return (radius, offset, cooldown_sec) for melee attack. Ranged uses projectiles."""
+    if enemy_type == "ranged":
+        return 0.0, 0.0, 999.0
     if enemy_type == "brute":
         return ENEMY_BRUTE_ATTACK_RADIUS, ENEMY_BRUTE_ATTACK_OFFSET, ENEMY_BRUTE_ATTACK_COOLDOWN_SEC
     if enemy_type == "flanker":
@@ -153,6 +308,8 @@ def _enemy_stop_distance(enemy_type: str) -> float:
         return float(ENEMY_FLANKER_STOP_DISTANCE)
     if enemy_type == "heavy":
         return float(ENEMY_HEAVY_STOP_DISTANCE)
+    if enemy_type == "ranged":
+        return float(ENEMY_RANGED_STOP_DISTANCE)
     return float(ENEMY_SWARM_STOP_DISTANCE)
 
 
@@ -200,6 +357,9 @@ class EnemyBase:
         self._player_dead = False
         # Damage feedback: brief red flash when hit.
         self.damage_flash_timer: float = 0.0
+        # Anti-stuck: wall slide and low-movement detection
+        self._last_world_pos: Tuple[float, float] | None = None
+        self._stuck_frames: int = 0
 
     # --- Animations ---------------------------------------------------------
 
@@ -207,23 +367,20 @@ class EnemyBase:
         if self._animations_loaded:
             return
         self._animations_loaded = True
-        base_path = f"assets/entities/enemies/{self.enemy_type}"
+        if self.enemy_type in _ENEMY_ANIMATION_CACHE:
+            cached = _ENEMY_ANIMATION_CACHE[self.enemy_type]
+            for state in ("idle", "walk", "attack", "hit", "death"):
+                self._animations[state] = cached[state]
+            idle_frames = self._animations["idle"]
+            if idle_frames:
+                self._anim_state.set_animation(idle_frames, 6, True)
+            return
+        loaded = _load_animations_for_type(self.enemy_type, self.size)
+        _ENEMY_ANIMATION_CACHE[self.enemy_type] = loaded
         for state in ("idle", "walk", "attack", "hit", "death"):
-            folder = f"{base_path}/{state}"
-            frames = load_animation(
-                folder,
-                size=self.size,
-                use_colorkey=True,
-                colorkey_color=(255, 255, 255),
-                near_white_threshold=0,
-                corner_bg_tolerance=40,
-                strip_flat_bg=True,
-            )
-            self._animations[state] = frames
-        idle_frames = self._animations["idle"]
-        fps = 6
-        loop = True
-        self._anim_state.set_animation(idle_frames, fps, loop)
+            self._animations[state] = loaded[state]
+        idle_frames = self._animations["idle"] or [pygame.Surface(self.size)]
+        self._anim_state.set_animation(idle_frames, 6, True)
 
     def _set_state(self, new_state: str) -> None:
         if new_state == self.state:
@@ -245,7 +402,14 @@ class EnemyBase:
 
     # --- Update / AI -------------------------------------------------------
 
-    def update(self, dt: float, player, room_rect: pygame.Rect | None = None) -> None:
+    def update(
+        self,
+        dt: float,
+        player,
+        room_rect: pygame.Rect | None = None,
+        heavy_clearance_cb=None,
+        heavy_retreat_cb=None,
+    ) -> None:
         self._ensure_animations_loaded()
         if self.inactive:
             return
@@ -278,6 +442,10 @@ class EnemyBase:
         vx, vy = 0.0, 0.0
         stop_dist = _enemy_stop_distance(self.enemy_type)
 
+        # Heavy: record "chasing" for trap detection (low displacement for ~0.6s while chasing = stuck)
+        if self.enemy_type == "heavy":
+            self._heavy_chasing_this_frame = dist > stop_dist
+
         if dist > stop_dist:
             if dist > 1e-3:
                 nx = dx / dist
@@ -293,8 +461,124 @@ class EnemyBase:
             vx = vy = 0.0
             self._set_state("attack")
 
+        # Heavy: if in retreat phase (deterministic unstuck), use retreat only when outside attack range
+        if (
+            self.enemy_type == "heavy"
+            and getattr(self, "_unstuck_retreat_timer", 0) > 0
+            and room_rect is not None
+            and dist > stop_dist
+        ):
+            dx, dy = getattr(self, "_unstuck_retreat_direction", (1.0, 0.0))
+            vx = dx * self.move_speed
+            vy = dy * self.move_speed
+            self.facing = (dx, dy)
+            self._set_state("walk")
+        else:
+            # Anti-stuck: wall collision = immediate slide; stuck = Heavy retreat or random steering
+            wall_collision = getattr(self, "_wall_collision_this_frame", False)
+            stuck_frames = getattr(self, "_stuck_frames", 0)
+            has_velocity = (vx * vx + vy * vy) > 1e-6
+            if wall_collision and has_velocity:
+                # Slide along wall (fixed 45° nudge)
+                speed = math.hypot(vx, vy)
+                cos45 = 0.70710678
+                ovx, ovy = vx, vy
+                vx = ovx * cos45 - ovy * cos45
+                vy = ovx * cos45 + ovy * cos45
+                n = math.hypot(vx, vy)
+                if n > 1e-6:
+                    vx, vy = vx * speed / n, vy * speed / n
+                setattr(self, "_wall_collision_this_frame", False)
+            elif stuck_frames >= (STUCK_FRAME_COUNT_HEAVY if self.enemy_type == "heavy" else STUCK_FRAME_COUNT) and (has_velocity or self.enemy_type == "heavy"):
+                # Heavy: trigger escape even when velocity was zeroed (trap: chasing but can't move)
+                if self.enemy_type == "heavy" and (room_rect is not None or heavy_retreat_cb is not None):
+                    if getattr(self, "_unstuck_retreat_timer", 0) <= 0:
+                        self._unstuck_retreat_timer = HEAVY_UNSTUCK_RETREAT_DURATION_SEC
+                        if callable(heavy_retreat_cb):
+                            self._unstuck_retreat_direction = heavy_retreat_cb()
+                        elif room_rect is not None:
+                            self._unstuck_retreat_direction = _get_retreat_direction_away_from_wall(
+                                self.world_pos, room_rect
+                            )
+                        else:
+                            self._unstuck_retreat_direction = (1.0, 0.0)
+                    vx = self._unstuck_retreat_direction[0] * self.move_speed
+                    vy = self._unstuck_retreat_direction[1] * self.move_speed
+                else:
+                    vx, vy = apply_anti_stuck_velocity(self, vx, vy)
+
+        # Heavy: deterministic obstacle avoidance — try direct, then slide X, slide Y, perpendiculars; cache reroute
+        if (
+            self.enemy_type == "heavy"
+            and callable(heavy_clearance_cb)
+            and dist > stop_dist
+            and getattr(self, "_unstuck_retreat_timer", 0) <= 0
+        ):
+            w, h = self.size
+            padding = HEAVY_CLEARANCE_PADDING_PX
+
+            def _check_direction(ux: float, uy: float) -> bool:
+                next_rect = pygame.Rect(x + ux * self.move_speed * dt - w / 2, y + uy * self.move_speed * dt - h / 2, w, h)
+                return heavy_clearance_cb(next_rect, padding)
+
+            # 1) If cached reroute still valid, use it to avoid jitter
+            reroute_timer = getattr(self, "_heavy_reroute_timer", 0.0)
+            reroute_dir = getattr(self, "_heavy_reroute_direction", None)
+            if reroute_timer > 0 and reroute_dir is not None:
+                ux, uy = reroute_dir
+                if _check_direction(ux, uy):
+                    vx = ux * self.move_speed
+                    vy = uy * self.move_speed
+                    self.facing = (ux, uy)
+                    self._set_state("walk")
+                else:
+                    self._heavy_reroute_timer = 0.0
+                    self._heavy_reroute_direction = None
+                    reroute_dir = None
+
+            # 2) If no cached reroute, try candidates in deterministic order
+            if reroute_dir is None or reroute_timer <= 0:
+                nx_val = dx / dist if dist > 1e-3 else 1.0
+                ny_val = dy / dist if dist > 1e-3 else 0.0
+                slide_x = (1.0, 0.0) if dx >= 0 else (-1.0, 0.0)
+                slide_y = (0.0, 1.0) if dy >= 0 else (0.0, -1.0)
+                perp_l = (-ny_val, nx_val)
+                perp_r = (ny_val, -nx_val)
+                candidates = [
+                    (nx_val, ny_val),
+                    slide_x,
+                    slide_y,
+                    perp_l,
+                    perp_r,
+                ]
+                chosen = None
+                for (ux, uy) in candidates:
+                    if _check_direction(ux, uy):
+                        chosen = (ux, uy)
+                        break
+                if chosen is not None:
+                    ux, uy = chosen
+                    vx = ux * self.move_speed
+                    vy = uy * self.move_speed
+                    self.facing = (ux, uy)
+                    self._set_state("walk")
+                    is_direct = abs(ux - nx_val) < 1e-5 and abs(uy - ny_val) < 1e-5
+                    if not is_direct:
+                        self._heavy_reroute_timer = HEAVY_REROUTE_CACHE_SEC
+                        self._heavy_reroute_direction = (ux, uy)
+                else:
+                    vx = vy = 0.0
+        else:
+            # Non-Heavy or no callback: single clearance check for Heavy (reject blocked)
+            if self.enemy_type == "heavy" and callable(heavy_clearance_cb) and (vx * vx + vy * vy) > 1e-6:
+                w, h = self.size
+                next_rect = pygame.Rect(x + vx * dt - w / 2, y + vy * dt - h / 2, w, h)
+                if not heavy_clearance_cb(next_rect, HEAVY_CLEARANCE_PADDING_PX):
+                    vx = vy = 0.0
+
         self.velocity_xy = (vx, vy)
 
+        start_pos = (x, y)
         # Integrate position
         x += vx * dt
         y += vy * dt
@@ -315,25 +599,35 @@ class EnemyBase:
 
         # Collision resolution: if overlapping player, keep enemy on its current side
         # and push it outward so its center is ~stop_dist away from the player.
-        enemy_rect = self.get_hitbox_rect()
-        player_rect = player.get_hitbox_rect()
-        if enemy_rect.colliderect(player_rect):
-            # Use direction from player to enemy so we never "teleport" through
-            # the player to the opposite side.
-            nx, ny = 1.0, 0.0
-            if dist > 1e-3:
-                nx = (x - px) / dist
-                ny = (y - py) / dist
-            # Push back to the configured stop distance so melee radius/offset
-            # still line up with attack logic.
-            target_dist = stop_dist
-            x = px + nx * target_dist
-            y = py + ny * target_dist
-            self.world_pos = (x, y)
+        # Skip during player dash so enemies are not displaced by dash (player-only movement).
+        if not getattr(player, "dash_active", False):
+            enemy_rect = self.get_hitbox_rect()
+            player_rect = player.get_hitbox_rect()
+            if enemy_rect.colliderect(player_rect):
+                # Use direction from player to enemy so we never "teleport" through
+                # the player to the opposite side.
+                nx, ny = 1.0, 0.0
+                if dist > 1e-3:
+                    nx = (x - px) / dist
+                    ny = (y - py) / dist
+                # Push back to the configured stop distance so melee radius/offset
+                # still line up with attack logic.
+                target_dist = stop_dist
+                x = px + nx * target_dist
+                y = py + ny * target_dist
+                self.world_pos = (x, y)
+
+        update_stuck_tracking(self, start_pos)
+
+        # Heavy: tick down retreat timer and reroute cache (deterministic unstuck / obstacle avoid)
+        if self.enemy_type == "heavy":
+            if getattr(self, "_unstuck_retreat_timer", 0) > 0:
+                self._unstuck_retreat_timer = max(0.0, self._unstuck_retreat_timer - dt)
+            if getattr(self, "_heavy_reroute_timer", 0) > 0:
+                self._heavy_reroute_timer = max(0.0, self._heavy_reroute_timer - dt)
 
         # Contact damage removed per Phase 4 decision: damage will come only from
         # explicit attack hitboxes/projectiles (no touch damage).
-
         self._anim_state.advance(dt)
 
     def _update_contact_damage(self, dt: float, player, stop_dist: float) -> None:
@@ -392,6 +686,13 @@ class EnemyBase:
         cx, cy = camera_offset
         x = int(self.world_pos[0] - cx - surf.get_width() / 2)
         y = int(self.world_pos[1] - cy - surf.get_height() / 2)
+        # Biome 4 Phase 2: red elite aura for Biome 4 elite encounters only.
+        if self.elite and CURRENT_BIOME_INDEX == 4:
+            aura = _ensure_elite_aura_red()
+            if aura is not None:
+                ax = int(self.world_pos[0] - cx - aura.get_width() / 2)
+                ay = int(self.world_pos[1] - cy - aura.get_height() / 2)
+                screen.blit(aura, (ax, ay))
         screen.blit(surf, (x, y))
         if self.damage_flash_timer > 0.0:
             intensity = min(1.0, self.damage_flash_timer / 0.15)

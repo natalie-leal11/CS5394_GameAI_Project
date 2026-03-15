@@ -73,10 +73,11 @@ def apply_player_movement(
 
     vx, vy = 0.0, 0.0
 
+    move_speed_mult = getattr(player, "move_speed_mult", 1.0)
     if getattr(player, "dash_active", False):
         # During dash: apply dash velocity (dash ignores slow tile per Requirements)
         dash_dir = getattr(player, "dash_direction", (1, 0))
-        speed = PLAYER_MOVE_SPEED * PLAYER_DASH_SPEED_MULT
+        speed = PLAYER_MOVE_SPEED * move_speed_mult * PLAYER_DASH_SPEED_MULT
         vx = dash_dir[0] * speed
         vy = dash_dir[1] * speed
         player.dash_timer -= dt
@@ -85,8 +86,9 @@ def apply_player_movement(
             player.dash_cooldown_timer = PLAYER_DASH_COOLDOWN_SEC
     elif can_move:
         dx, dy = _get_wasd_vector(keys_pressed)
-        vx = dx * PLAYER_MOVE_SPEED * (speed_factor if speed_factor is not None else 1.0)
-        vy = dy * PLAYER_MOVE_SPEED * (speed_factor if speed_factor is not None else 1.0)
+        base = PLAYER_MOVE_SPEED * move_speed_mult * (speed_factor if speed_factor is not None else 1.0)
+        vx = dx * base
+        vy = dy * base
         # Tick down dash cooldown
         if getattr(player, "dash_cooldown_timer", 0) > 0:
             player.dash_cooldown_timer = max(0, player.dash_cooldown_timer - dt)
