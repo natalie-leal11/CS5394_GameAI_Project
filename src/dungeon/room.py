@@ -14,15 +14,28 @@ from game.config import (
     HAZARD_SLOW_MAX_FRACTION,
     BEGINNER_TEST_MODE,
     USE_BIOME2,
+    USE_BIOME3,
+    USE_BIOME4,
     BIOME1_ROOM_COUNT,
     BIOME2_ROOM_COUNT,
     BIOME2_START_INDEX,
+    BIOME3_ROOM_COUNT,
+    BIOME3_START_INDEX,
+    BIOME4_ROOM_COUNT,
+    BIOME4_START_INDEX,
 )
 
 
 def total_campaign_rooms() -> int:
-    """Total rooms in the campaign. 16 when USE_BIOME2 (full campaign), else 8 (Biome 1 only)."""
-    return BIOME1_ROOM_COUNT + BIOME2_ROOM_COUNT if USE_BIOME2 else BIOME1_ROOM_COUNT
+    """Total rooms: 8 (Biome 1), +8 if USE_BIOME2, +8 if USE_BIOME3, +6 if USE_BIOME4 (Biome 4)."""
+    n = BIOME1_ROOM_COUNT
+    if USE_BIOME2:
+        n += BIOME2_ROOM_COUNT
+    if USE_BIOME3:
+        n += BIOME3_ROOM_COUNT
+    if USE_BIOME4:
+        n += BIOME4_ROOM_COUNT
+    return n
 
 
 class RoomType(str, Enum):
@@ -33,6 +46,7 @@ class RoomType(str, Enum):
     SAFE = "SAFE"
     ELITE = "ELITE"
     MINI_BOSS = "MINI_BOSS"
+    FINAL_BOSS = "FINAL_BOSS"
 
 
 # Tile kinds for the grid (inner tiles only; walls are implicit at edges or from layout).
@@ -44,9 +58,9 @@ TILE_WALL = "wall"
 # Minimum tiles between door (entrance/exit) and lava/slow so player can enter/leave safely.
 DOOR_HAZARD_MARGIN = 3
 
-# Wall border thickness in tiles (32px each). Standard = 2; small/ambush = 4. Playable = grid minus 2*border.
+# Wall border thickness in tiles (32px each). Standard = 2; ambush = 4. Playable = grid minus 2*border.
 def wall_border_thickness(room_type: RoomType) -> int:
-    """Return wall border thickness in tiles. Ambush = 4; standard combat/safe/start/elite/mini_boss = 2."""
+    """Return wall border thickness in tiles. Ambush = 4; standard combat/safe/start/elite/mini_boss/final_boss = 2."""
     if room_type == RoomType.AMBUSH:
         return 4
     return 2
@@ -117,17 +131,26 @@ def _make_tile_grid(width: int, height: int, room_type: RoomType, room_index: in
     entrance_safe_r_min = r1 - margin
 
     total = (r1 - r0) * (c1 - c0)
-    if BEGINNER_TEST_MODE:
+    if room_type == RoomType.FINAL_BOSS:
+        # Biome 4 Final Boss arena: lava ≤10%, slow ≤15%, minimum safe area ≥35%.
+        lava_cap = int(total * 0.10)
+        slow_cap = int(total * 0.15)
+        hazard_cap = int(total * 0.65)  # so safe ≥ 35%
+        n_lava = rng.randint(0, max(0, min(lava_cap, hazard_cap)))
+        n_slow = rng.randint(0, max(0, min(slow_cap, hazard_cap - n_lava)))
+    elif BEGINNER_TEST_MODE:
         # §12: Lava 0-3%, Slow 5-8%, Safe ≥75%
         lava_cap = int(total * 0.03)
         slow_min = int(total * 0.05)
         slow_max = int(total * 0.08)
+        n_lava = rng.randint(0, max(0, lava_cap))
+        n_slow = rng.randint(slow_min, min(slow_max, total - n_lava))
     else:
         lava_cap = int(total * HAZARD_LAVA_MAX_FRACTION)
         slow_min = int(total * HAZARD_SLOW_MIN_FRACTION)
         slow_max = int(total * HAZARD_SLOW_MAX_FRACTION)
-    n_lava = rng.randint(0, max(0, lava_cap))
-    n_slow = rng.randint(slow_min, min(slow_max, total - n_lava))
+        n_lava = rng.randint(0, max(0, lava_cap))
+        n_slow = rng.randint(slow_min, min(slow_max, total - n_lava))
 
     cells = []
     for r in range(r0, r1):
@@ -284,13 +307,27 @@ def generate_room(campaign_index: int, seed: int | None = None) -> Room:
         order = _room_order_biome1(seed)
         room_type = order[campaign_index]
         biome_index = 1
-    else:
+    elif campaign_index < BIOME3_START_INDEX:
         # Biome 2
         from dungeon.biome2_sequence import room_order_biome2
         order = room_order_biome2(seed)
         local_idx = campaign_index - BIOME2_START_INDEX
         room_type = order[local_idx]
         biome_index = 2
+    elif campaign_index < BIOME4_START_INDEX:
+        # Biome 3
+        from dungeon.biome3_sequence import room_order_biome3
+        order = room_order_biome3(seed)
+        local_idx = campaign_index - BIOME3_START_INDEX
+        room_type = order[local_idx]
+        biome_index = 3
+    else:
+        # Biome 4 (rooms 24-29)
+        from dungeon.biome4_sequence import room_order_biome4
+        order = room_order_biome4(seed)
+        local_idx = campaign_index - BIOME4_START_INDEX
+        room_type = order[local_idx]
+        biome_index = 4
 
     width, height = _room_grid_size()
     grid = _make_tile_grid(width, height, room_type, campaign_index, seed)

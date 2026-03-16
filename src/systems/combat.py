@@ -29,6 +29,9 @@ from game.config import (
     MINI_BOSS_ATTACK_OFFSET,
     MINI_BOSS_ATTACK_COOLDOWN_SEC,
     PLAYER_SIZE,
+    FINAL_BOSS_ATTACK_RADIUS,
+    FINAL_BOSS_ATTACK_OFFSET,
+    FINAL_BOSS_ATTACK_COOLDOWN_SEC,
 )
 
 
@@ -68,7 +71,9 @@ def _enemy_hurtbox_rect(enemy) -> pygame.Rect:
 
 def _enemy_attack_params(enemy_type: str) -> tuple[float, float, float]:
     """Return (radius, offset, cooldown_sec) for melee attack."""
-    if enemy_type in ("mini_boss", "mini_boss_2"):
+    if enemy_type == "ranged":
+        return 0.0, 0.0, 999.0
+    if enemy_type in ("mini_boss", "mini_boss_2", "mini_boss_3"):
         return MINI_BOSS_ATTACK_RADIUS, MINI_BOSS_ATTACK_OFFSET, MINI_BOSS_ATTACK_COOLDOWN_SEC
     if enemy_type == "brute":
         return ENEMY_BRUTE_ATTACK_RADIUS, ENEMY_BRUTE_ATTACK_OFFSET, ENEMY_BRUTE_ATTACK_COOLDOWN_SEC
@@ -76,6 +81,8 @@ def _enemy_attack_params(enemy_type: str) -> tuple[float, float, float]:
         return ENEMY_FLANKER_ATTACK_RADIUS, ENEMY_FLANKER_ATTACK_OFFSET, ENEMY_FLANKER_ATTACK_COOLDOWN_SEC
     if enemy_type == "heavy":
         return ENEMY_HEAVY_ATTACK_RADIUS, ENEMY_HEAVY_ATTACK_OFFSET, ENEMY_HEAVY_ATTACK_COOLDOWN_SEC
+    if enemy_type == "final_boss":
+        return FINAL_BOSS_ATTACK_RADIUS, FINAL_BOSS_ATTACK_OFFSET, FINAL_BOSS_ATTACK_COOLDOWN_SEC
     return ENEMY_SWARM_ATTACK_RADIUS, ENEMY_SWARM_ATTACK_OFFSET, ENEMY_SWARM_ATTACK_COOLDOWN_SEC
 
 
@@ -158,6 +165,8 @@ def apply_player_attacks(player, enemies: list) -> List[DamageEvent]:
         for enemy in enemies:
             if getattr(enemy, "inactive", False):
                 continue
+            if getattr(enemy, "enemy_type", None) == "final_boss" and (getattr(enemy, "_revive_invuln_timer", 0) > 0 or getattr(enemy, "state", None) == "revive_wait"):
+                continue
             if not player.can_hit_enemy_with_short(enemy):
                 continue
             hurtbox = _enemy_hurtbox_rect(enemy)
@@ -168,6 +177,7 @@ def apply_player_attacks(player, enemies: list) -> List[DamageEvent]:
             enemy.hp = max(0.0, new_hp)
             if enemy.hp <= 0.0 and hasattr(enemy, "_set_state"):
                 enemy._set_state("death")
+            # Final boss: do not set state to "hit" (stagger resistance); damage_flash_timer is visual only.
             if hasattr(enemy, "damage_flash_timer"):
                 enemy.damage_flash_timer = 0.15
             player.register_short_attack_hit(enemy)
@@ -224,6 +234,8 @@ def apply_player_attacks(player, enemies: list) -> List[DamageEvent]:
         for enemy in enemies:
             if getattr(enemy, "inactive", False):
                 continue
+            if getattr(enemy, "enemy_type", None) == "final_boss" and (getattr(enemy, "_revive_invuln_timer", 0) > 0 or getattr(enemy, "state", None) == "revive_wait"):
+                continue
             hurtbox = _enemy_hurtbox_rect(enemy)
             if not attack_rect.colliderect(hurtbox):
                 continue
@@ -232,6 +244,7 @@ def apply_player_attacks(player, enemies: list) -> List[DamageEvent]:
             enemy.hp = max(0.0, new_hp)
             if enemy.hp <= 0.0 and hasattr(enemy, "_set_state"):
                 enemy._set_state("death")
+            # Final boss: do not set state to "hit" (stagger resistance); damage_flash_timer is visual only.
             if hasattr(enemy, "damage_flash_timer"):
                 enemy.damage_flash_timer = 0.15
             events.append(
@@ -268,8 +281,14 @@ def apply_enemy_attacks(player, enemies: list, dt: float) -> List[DamageEvent]:
         if getattr(enemy, "inactive", False):
             continue
         enemy_type = getattr(enemy, "enemy_type", "swarm")
+        if enemy_type == "ranged":
+            continue
         state = getattr(enemy, "state", "")
-        attacking = state == "attack" or (enemy_type in ("mini_boss", "mini_boss_2") and state in ("attack_01", "attack_02"))
+        attacking = (
+            state == "attack"
+            or (enemy_type in ("mini_boss", "mini_boss_2", "mini_boss_3") and state in ("attack_01", "attack_02"))
+            or (enemy_type == "final_boss" and state == "attack2" and getattr(enemy, "_teleport_strike_damage_frame", False))
+        )
         if not attacking:
             continue
         radius, offset, cooldown = _enemy_attack_params(enemy_type)
@@ -284,11 +303,14 @@ def apply_enemy_attacks(player, enemies: list, dt: float) -> List[DamageEvent]:
         dist = math.hypot(px - cx, py - cy)
         if dist <= radius:
             enemy.attack_cooldown_timer = cooldown
+            if enemy_type == "final_boss" and getattr(enemy, "_teleport_strike_damage_frame", False):
+                setattr(enemy, "_teleport_strike_damage_frame", False)
             if parry_active:
                 continue
             dmg = getattr(enemy, "damage", 0.0)
             if is_blocking:
                 dmg *= PLAYER_BLOCK_DAMAGE_FACTOR
+            dmg *= getattr(player, "damage_taken_mult", 1.0)
             if dmg <= 0:
                 continue
             player.hp = max(0.0, player.hp - dmg)
@@ -304,5 +326,34 @@ def apply_enemy_attacks(player, enemies: list, dt: float) -> List[DamageEvent]:
                 )
             )
 
+    return events
+
+
+def apply_projectile_hits(player, projectiles: list) -> List[DamageEvent]:
+    """Resolve enemy projectiles vs player. On hit: apply damage, mark projectile inactive."""
+    events: List[DamageEvent] = []
+    player_rect = player.get_hitbox_rect()
+    for proj in projectiles:
+        if getattr(proj, "inactive", True):
+            continue
+        if not player_rect.colliderect(proj.get_hitbox_rect()):
+            continue
+        proj.inactive = True
+        dmg = getattr(proj, "damage", 0.0)
+        if dmg <= 0:
+            continue
+        dmg *= getattr(player, "damage_taken_mult", 1.0)
+        player.hp = max(0.0, player.hp - dmg)
+        if hasattr(player, "damage_flash_timer"):
+            player.damage_flash_timer = 0.15
+        events.append(
+            DamageEvent(
+                target=player,
+                amount=dmg,
+                is_player=True,
+                world_pos=player.world_pos,
+                source="enemy_projectile",
+            )
+        )
     return events
 

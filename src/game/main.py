@@ -1,6 +1,14 @@
 # Entry point. Initialize display BEFORE any convert_alpha(); StartScene first; clear every frame.
 # Logical buffer (960x640) is scaled to the window (half screen by default).
 
+import sys
+from pathlib import Path
+
+# Allow running as "python -m src.game.main" from project root (game = src/game)
+_src = Path(__file__).resolve().parent.parent
+if str(_src) not in sys.path:
+    sys.path.insert(0, str(_src))
+
 import random
 import pygame
 
