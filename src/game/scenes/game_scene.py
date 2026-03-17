@@ -829,8 +829,12 @@ class GameScene(BaseScene):
         # Phase 3: victory after beating final boss (last room exit)
         if self._victory_phase:
             self._victory_timer += dt
+            # 0.0 - 2.0 sec: full victory screen
+            # 2.0 - 5.0 sec: blackscreen + victory banner
+            # 5.0 sec: return to main menu
             if self._victory_timer >= 5.0:
                 self._victory_phase = False
+                self._victory_timer = 0.0
                 self.scene_manager.switch_to_start()
             return
 
@@ -2522,12 +2526,19 @@ class GameScene(BaseScene):
         if self._victory_phase:
             self._ensure_boss_ui_loaded()
             center_x, center_y = LOGICAL_W // 2, LOGICAL_H // 2
-            if self._victory_bg is not None:
-                bg_rect = self._victory_bg.get_rect(center=(center_x, center_y))
-                screen.blit(self._victory_bg, bg_rect.topleft)
-            if self._victory_banner is not None:
-                banner_rect = self._victory_banner.get_rect(center=(center_x, center_y))
-                screen.blit(self._victory_banner, banner_rect.topleft)
+            
+            # Phase 1: first 2 seconds -> victory banner
+            if self._victory_timer < 2.0:
+                if self._victory_banner is not None:
+                    banner_rect = self._victory_banner.get_rect(center=(center_x, center_y))
+                    screen.blit(self._victory_banner, banner_rect.topleft)
+            # Phase 2: next 3 seconds -> blackscreen + victory banner
+            else:
+                screen.fill((0, 0, 0))
+
+                if self._victory_bg is not None:
+                    bg_rect = self._victory_bg.get_rect(center=(center_x, center_y))
+                    screen.blit(self._victory_bg, bg_rect.topleft)
 
         # Death sequence overlays
         if self._death_phase is not None:

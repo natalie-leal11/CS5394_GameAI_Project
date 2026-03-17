@@ -140,6 +140,7 @@ class MiniBoss:
 
         px, py = player.world_pos
         x, y = self.world_pos
+        start_pos = (x, y)
         dx = px - x
         dy = py - y
         dist = math.hypot(dx, dy)
