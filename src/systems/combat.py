@@ -29,10 +29,28 @@ from game.config import (
     MINI_BOSS_ATTACK_OFFSET,
     MINI_BOSS_ATTACK_COOLDOWN_SEC,
     PLAYER_SIZE,
+    PLAYER_HITBOX_W,
+    PLAYER_HITBOX_H,
     FINAL_BOSS_ATTACK_RADIUS,
     FINAL_BOSS_ATTACK_OFFSET,
     FINAL_BOSS_ATTACK_COOLDOWN_SEC,
+    ENEMY_MELEE_HIT_RADIUS_MULT_SWARM,
+    ENEMY_MELEE_HIT_RADIUS_MULT_FLANKER,
+    ENEMY_MELEE_HIT_RADIUS_MULT_BRUTE,
+    ENEMY_MELEE_HIT_RADIUS_MULT_HEAVY,
+    ENEMY_MELEE_BODY_FALLBACK_EXTRA_SWARM,
+    ENEMY_MELEE_BODY_FALLBACK_EXTRA_FLANKER,
+    ENEMY_MELEE_BODY_FALLBACK_EXTRA_BRUTE,
+    ENEMY_MELEE_BODY_FALLBACK_EXTRA_HEAVY,
+    ENEMY_MELEE_FLANKER_SEGMENT_REACH_PX,
+    MINI_BOSS_MELEE_HIT_RADIUS_MULT,
+    MINI_BOSS_MELEE_BODY_EXTRA_PX,
+    MINI_BOSS_MELEE_ARC_BONUS_PX,
+    ENEMY_MELEE_BODY_EXTRA_UNIVERSAL_PX,
+    DEBUG_MELEE_HIT,
 )
+
+_MINI_BOSS_MELEE_TYPES = frozenset({"mini_boss", "mini_boss_2", "mini_boss_3"})
 
 
 @dataclass
@@ -56,6 +74,46 @@ def _rect_overlaps_circle(rect: pygame.Rect, cx: float, cy: float, radius: float
     closest_x = max(rect.left, min(cx, rect.right))
     closest_y = max(rect.top, min(cy, rect.bottom))
     return math.hypot(cx - closest_x, cy - closest_y) <= radius
+
+
+def _dist_point_to_segment_sq(px: float, py: float, x1: float, y1: float, x2: float, y2: float) -> float:
+    """Squared distance from point P to segment (x1,y1)-(x2,y2)."""
+    dx = x2 - x1
+    dy = y2 - y1
+    len_sq = dx * dx + dy * dy
+    if len_sq <= 1e-18:
+        return (px - x1) ** 2 + (py - y1) ** 2
+    t = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / len_sq))
+    qx = x1 + t * dx
+    qy = y1 + t * dy
+    return (px - qx) ** 2 + (py - qy) ** 2
+
+
+def _melee_hit_tuning(enemy_type: str) -> tuple[float, float]:
+    """(arc radius multiplier, extra px on body-distance fallback) per standard melee identity."""
+    if enemy_type == "swarm":
+        return float(ENEMY_MELEE_HIT_RADIUS_MULT_SWARM), float(ENEMY_MELEE_BODY_FALLBACK_EXTRA_SWARM)
+    if enemy_type == "flanker":
+        return float(ENEMY_MELEE_HIT_RADIUS_MULT_FLANKER), float(ENEMY_MELEE_BODY_FALLBACK_EXTRA_FLANKER)
+    if enemy_type == "brute":
+        return float(ENEMY_MELEE_HIT_RADIUS_MULT_BRUTE), float(ENEMY_MELEE_BODY_FALLBACK_EXTRA_BRUTE)
+    if enemy_type == "heavy":
+        return float(ENEMY_MELEE_HIT_RADIUS_MULT_HEAVY), float(ENEMY_MELEE_BODY_FALLBACK_EXTRA_HEAVY)
+    # default: swarm-like
+    return float(ENEMY_MELEE_HIT_RADIUS_MULT_SWARM), float(ENEMY_MELEE_BODY_FALLBACK_EXTRA_SWARM)
+
+
+def _player_hurtbox_for_melee(player) -> pygame.Rect:
+    """Player hurtbox for enemy melee checks; supports real Player and test dummies without get_hitbox_rect."""
+    if hasattr(player, "get_hitbox_rect"):
+        return player.get_hitbox_rect()
+    px, py = float(player.world_pos[0]), float(player.world_pos[1])
+    return pygame.Rect(
+        int(px - PLAYER_HITBOX_W / 2),
+        int(py - PLAYER_HITBOX_H / 2),
+        PLAYER_HITBOX_W,
+        PLAYER_HITBOX_H,
+    )
 
 
 def _enemy_hurtbox_rect(enemy) -> pygame.Rect:
@@ -84,6 +142,66 @@ def _enemy_attack_params(enemy_type: str) -> tuple[float, float, float]:
     if enemy_type == "final_boss":
         return FINAL_BOSS_ATTACK_RADIUS, FINAL_BOSS_ATTACK_OFFSET, FINAL_BOSS_ATTACK_COOLDOWN_SEC
     return ENEMY_SWARM_ATTACK_RADIUS, ENEMY_SWARM_ATTACK_OFFSET, ENEMY_SWARM_ATTACK_COOLDOWN_SEC
+
+
+def _enemy_melee_player_in_range(
+    enemy_type: str,
+    enemy,
+    player,
+    radius: float,
+    offset: float,
+) -> bool:
+    """
+    True if this swing should connect.
+    - final_boss: strict center-vs-arc distance.
+    - mini_boss / mini_boss_2 / mini_boss_3: forgiving hitbox + body + arc bonus (shared tuning).
+    - Other melee: per-type arc scale + body fallback; Flanker adds segment reach.
+    """
+    px, py = float(player.world_pos[0]), float(player.world_pos[1])
+    ex, ey = float(enemy.world_pos[0]), float(enemy.world_pos[1])
+    fx, fy = _normalize(px - ex, py - ey)
+    if fx == fy == 0.0:
+        fx, fy = 1.0, 0.0
+    cx = ex + fx * offset
+    cy = ey + fy * offset
+
+    if enemy_type == "final_boss":
+        dist_hit = math.hypot(px - cx, py - cy)
+        return dist_hit <= radius
+    u = float(ENEMY_MELEE_BODY_EXTRA_UNIVERSAL_PX)
+    if enemy_type in _MINI_BOSS_MELEE_TYPES:
+        eff_r = radius * float(MINI_BOSS_MELEE_HIT_RADIUS_MULT) + u
+        player_rect = _player_hurtbox_for_melee(player)
+        if _rect_overlaps_circle(player_rect, cx, cy, eff_r):
+            return True
+        d_body = math.hypot(px - ex, py - ey)
+        if d_body <= radius + offset + float(MINI_BOSS_MELEE_BODY_EXTRA_PX) + u:
+            return True
+        if _rect_overlaps_circle(player_rect, cx, cy, eff_r + float(MINI_BOSS_MELEE_ARC_BONUS_PX)):
+            return True
+        return False
+
+    mult, body_extra = _melee_hit_tuning(enemy_type)
+    eff_r = radius * mult + u
+    player_rect = _player_hurtbox_for_melee(player)
+    if _rect_overlaps_circle(player_rect, cx, cy, eff_r):
+        return True
+    d_body = math.hypot(px - ex, py - ey)
+    if d_body <= radius + offset + body_extra + u:
+        return True
+    # Flanker: agile approaches — player near the swing line (enemy → arc), not only the arc center.
+    if enemy_type == "flanker":
+        d_seg = math.sqrt(_dist_point_to_segment_sq(px, py, ex, ey, cx, cy))
+        if d_seg <= eff_r + float(ENEMY_MELEE_FLANKER_SEGMENT_REACH_PX):
+            return True
+    # Brute / Heavy: wider arc at same swing point (larger enemies — fewer “standing there, no hit” cases).
+    if enemy_type == "brute":
+        if _rect_overlaps_circle(player_rect, cx, cy, eff_r + 6.0):
+            return True
+    if enemy_type == "heavy":
+        if _rect_overlaps_circle(player_rect, cx, cy, eff_r + 10.0):
+            return True
+    return False
 
 
 def apply_player_attacks(player, enemies: list) -> List[DamageEvent]:
@@ -270,6 +388,7 @@ def apply_enemy_attacks(player, enemies: list, dt: float) -> List[DamageEvent]:
     """
     Resolve enemy melee attacks against player.
     - Uses per-type radius/offset and cooldown from config.
+    - Standard melee: forgiving hitbox-vs-arc + close body fallback; bosses unchanged (center vs arc).
     - Honors player block/parry: parry negates, block scales damage.
     """
     events: List[DamageEvent] = []
@@ -294,36 +413,47 @@ def apply_enemy_attacks(player, enemies: list, dt: float) -> List[DamageEvent]:
         radius, offset, cooldown = _enemy_attack_params(enemy_type)
         if getattr(enemy, "attack_cooldown_timer", 0.0) > 0.0:
             continue
-        ex, ey = enemy.world_pos
-        fx, fy = _normalize(px - ex, py - ey)
-        if fx == fy == 0.0:
-            fx, fy = 1.0, 0.0
-        cx = ex + fx * offset
-        cy = ey + fy * offset
-        dist = math.hypot(px - cx, py - cy)
-        if dist <= radius:
-            enemy.attack_cooldown_timer = cooldown
-            if enemy_type == "final_boss" and getattr(enemy, "_teleport_strike_damage_frame", False):
-                setattr(enemy, "_teleport_strike_damage_frame", False)
-            if parry_active:
-                continue
-            dmg = getattr(enemy, "damage", 0.0)
-            if is_blocking:
-                dmg *= PLAYER_BLOCK_DAMAGE_FACTOR
-            dmg *= getattr(player, "damage_taken_mult", 1.0)
-            if dmg <= 0:
-                continue
-            player.hp = max(0.0, player.hp - dmg)
-            if hasattr(player, "damage_flash_timer"):
-                player.damage_flash_timer = 0.15
-            events.append(
-                DamageEvent(
-                    target=player,
-                    amount=dmg,
-                    is_player=True,
-                    world_pos=(px, py),
-                    source="enemy_melee",
+        in_range = _enemy_melee_player_in_range(enemy_type, enemy, player, radius, offset)
+        if not in_range:
+            if DEBUG_MELEE_HIT:
+                print(
+                    f"[HIT DEBUG] enemy={enemy_type} state={state} in_range=False damage_applied=False"
                 )
+            continue
+        enemy.attack_cooldown_timer = cooldown
+        if enemy_type == "final_boss" and getattr(enemy, "_teleport_strike_damage_frame", False):
+            setattr(enemy, "_teleport_strike_damage_frame", False)
+        if parry_active:
+            if DEBUG_MELEE_HIT:
+                print(
+                    f"[HIT DEBUG] enemy={enemy_type} state={state} in_range=True damage_applied=False"
+                )
+            continue
+        dmg = getattr(enemy, "damage", 0.0)
+        if is_blocking:
+            dmg *= PLAYER_BLOCK_DAMAGE_FACTOR
+        dmg *= getattr(player, "damage_taken_mult", 1.0)
+        if dmg <= 0:
+            if DEBUG_MELEE_HIT:
+                print(
+                    f"[HIT DEBUG] enemy={enemy_type} state={state} in_range=True damage_applied=False"
+                )
+            continue
+        player.hp = max(0.0, player.hp - dmg)
+        if hasattr(player, "damage_flash_timer"):
+            player.damage_flash_timer = 0.15
+        events.append(
+            DamageEvent(
+                target=player,
+                amount=dmg,
+                is_player=True,
+                world_pos=(px, py),
+                source="enemy_melee",
+            )
+        )
+        if DEBUG_MELEE_HIT:
+            print(
+                f"[HIT DEBUG] enemy={enemy_type} state={state} in_range=True damage_applied=True"
             )
 
     return events

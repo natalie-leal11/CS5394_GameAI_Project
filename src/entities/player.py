@@ -9,6 +9,8 @@ from game.config import (
     PLAYER_SIZE,
     PLAYER_HITBOX_W,
     PLAYER_HITBOX_H,
+    PLAYER_MOVEMENT_HITBOX_W,
+    PLAYER_MOVEMENT_HITBOX_H,
     PLAYER_BASE_HP,
     PLAYER_PARRY_WINDOW_SEC,
     PLAYER_DASH_DURATION_SEC,
@@ -117,6 +119,16 @@ class Player:
             y - PLAYER_HITBOX_H / 2,
             PLAYER_HITBOX_W,
             PLAYER_HITBOX_H,
+        )
+
+    def get_movement_hitbox_rect(self) -> pygame.Rect:
+        """Tighter body for room clamp, wall collision, and spawn overlap checks (same center as world_pos)."""
+        x, y = self.world_pos[0], self.world_pos[1]
+        return pygame.Rect(
+            x - PLAYER_MOVEMENT_HITBOX_W / 2,
+            y - PLAYER_MOVEMENT_HITBOX_H / 2,
+            PLAYER_MOVEMENT_HITBOX_W,
+            PLAYER_MOVEMENT_HITBOX_H,
         )
 
     def _ensure_animations_loaded(self) -> None:

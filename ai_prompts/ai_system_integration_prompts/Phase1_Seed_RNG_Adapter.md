@@ -71,21 +71,60 @@ Requirements:
 - do not change screen flow
 - do not change existing room loading semantics
 - do not break existing reset/start behavior
+seed variation is limited to:
+- flexible room-type selection within fixed biome bounds
+- enemy spawn-pattern variation
+- seed must NOT change:
+- room size
+- room geometry/layout
+- milestone rooms
+- boss structure
+- safe-room count per biome
 
 ### 4. Boundaries
-Seed-controlled variation may influence only AI-side presentation/encounter variation, including:
-- encounter mix within legal bounds
-- spawn timing within legal bounds
-- safe-room option ordering / selection bias
-- flexible-slot selection where legal
 
-Seed-controlled variation must NOT alter:
-- total rooms
-- milestone positions
-- hazard caps
-- supported room types
-- start/menu/victory screens
-- boss phase logic
+Seed-controlled variation SHALL be limited to the following:
+
+- Room type selection within predefined biome-specific bounds  
+  (e.g., selecting positions of COMBAT, AMBUSH, ELITE within allowed slots)
+- Enemy encounter composition within allowed biome + room-type limits  
+- Enemy spawn positions and formation realization (spread, triangle, ambush)
+- Enemy spawn ordering and slot-based timing (within defined delays)
+- Hazard placement (lava / slow tiles) within predefined caps
+
+---
+
+Seed-controlled variation MUST NOT alter:
+
+- Total number of rooms per biome  
+- Fixed milestone room positions:
+  - START room (first)
+  - MINI_BOSS / FINAL_BOSS room (last)
+- Safe room count (exactly 1 per biome)
+- Room size, grid dimensions, or layout structure
+- Door placement and connectivity
+- Supported room types per biome
+- Boss identity, phases, or attack logic
+- Core gameplay systems (movement, combat mechanics)
+- UI screens (start/menu/victory)
+
+---
+
+### Determinism Requirement
+
+Given the same:
+
+
+SEED + BIOME_INDEX + ROOM_INDEX
+
+
+The system MUST produce identical:
+
+- Room type selection (within bounds)
+- Enemy composition
+- Spawn positions
+- Spawn ordering
+- Hazard placement
 
 ---
 

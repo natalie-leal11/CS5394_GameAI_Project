@@ -10,6 +10,7 @@ import pygame
 
 from game.config import (
     SEED,
+    enemy_movement_size_tuple,
     FINAL_BOSS_SIZE,
     FINAL_BOSS_HP,
     FINAL_BOSS_CONTACT_DAMAGE,
@@ -114,18 +115,32 @@ class FinalBoss:
     summons 2 Swarm + 1 Flanker in ring. Contact damage 18; no grab/claw.
     """
 
-    def __init__(self, world_pos: Tuple[float, float], room_index: int = 29) -> None:
+    def __init__(
+        self,
+        world_pos: Tuple[float, float],
+        room_index: int = 29,
+        *,
+        ai_telegraph_mult: float = 1.0,
+        ai_cooldown_mult: float = 1.0,
+        ai_recovery_mult: float = 1.0,
+        ai_post_revive_delay_sec: float = 0.0,
+    ) -> None:
         self.enemy_type = "final_boss"
         self.world_pos = (float(world_pos[0]), float(world_pos[1]))
         self.room_index = room_index
         self.state = "spawn_idle"
         self.inactive = False
+        self._ai_telegraph_mult = float(ai_telegraph_mult)
+        self._ai_cooldown_mult = float(ai_cooldown_mult)
+        self._ai_recovery_mult = float(ai_recovery_mult)
+        self._ai_post_revive_delay_sec = float(ai_post_revive_delay_sec)
 
         self.max_hp = float(FINAL_BOSS_HP)
         self.hp = float(FINAL_BOSS_HP)
         self.damage = float(FINAL_BOSS_TELEPORT_STRIKE_DAMAGE)
         self.move_speed = float(FINAL_BOSS_MOVE_SPEED)
         self.size = FINAL_BOSS_SIZE
+        self.movement_size = enemy_movement_size_tuple("final_boss")
         self.velocity_xy = (0.0, 0.0)
         self.facing = (1.0, 0.0)
         self.attack_cooldown_timer = 0.0
@@ -228,6 +243,11 @@ class FinalBoss:
         x, y = self.world_pos
         return pygame.Rect(int(x - w / 2), int(y - h / 2), w, h)
 
+    def get_movement_hitbox_rect(self) -> pygame.Rect:
+        w, h = self.movement_size
+        x, y = self.world_pos
+        return pygame.Rect(int(x - w / 2), int(y - h / 2), w, h)
+
     def get_hurtbox_rect(self) -> pygame.Rect:
         return self.get_hitbox_rect()
 
@@ -238,33 +258,44 @@ class FinalBoss:
 
     def _cooldown_sec(self) -> float:
         if self._revived:
-            return FINAL_BOSS_ATTACK_COOLDOWN_REVIVE
-        return FINAL_BOSS_ATTACK_COOLDOWN_PHASE2_SEC if self._phase2 else FINAL_BOSS_ATTACK_COOLDOWN_SEC
+            base = FINAL_BOSS_ATTACK_COOLDOWN_REVIVE
+        else:
+            base = FINAL_BOSS_ATTACK_COOLDOWN_PHASE2_SEC if self._phase2 else FINAL_BOSS_ATTACK_COOLDOWN_SEC
+        return max(0.05, base * self._ai_cooldown_mult)
 
     def _telegraph_fireball_sec(self) -> float:
-        return BOSS_TELEGRAPH_FIREBALL_PHASE2 if self._phase2 else BOSS_TELEGRAPH_FIREBALL_PHASE1
+        base = BOSS_TELEGRAPH_FIREBALL_PHASE2 if self._phase2 else BOSS_TELEGRAPH_FIREBALL_PHASE1
+        return max(0.05, base * self._ai_telegraph_mult)
 
     def _telegraph_lava_sec(self) -> float:
-        return BOSS_TELEGRAPH_LAVA_PHASE2 if self._phase2 else BOSS_TELEGRAPH_LAVA_PHASE1
+        base = BOSS_TELEGRAPH_LAVA_PHASE2 if self._phase2 else BOSS_TELEGRAPH_LAVA_PHASE1
+        return max(0.05, base * self._ai_telegraph_mult)
 
     def _telegraph_teleport_sec(self) -> float:
-        return BOSS_TELEGRAPH_TELEPORT_PHASE2 if self._phase2 else BOSS_TELEGRAPH_TELEPORT_PHASE1
+        base = BOSS_TELEGRAPH_TELEPORT_PHASE2 if self._phase2 else BOSS_TELEGRAPH_TELEPORT_PHASE1
+        return max(0.05, base * self._ai_telegraph_mult)
 
     def _telegraph_meteor_sec(self) -> float:
         if self._revived:
-            return BOSS_TELEGRAPH_METEOR_PHASE2
-        return BOSS_TELEGRAPH_METEOR_PHASE2 if self._phase2 else BOSS_TELEGRAPH_METEOR_PHASE1
+            base = BOSS_TELEGRAPH_METEOR_PHASE2
+        else:
+            base = BOSS_TELEGRAPH_METEOR_PHASE2 if self._phase2 else BOSS_TELEGRAPH_METEOR_PHASE1
+        return max(0.05, base * self._ai_telegraph_mult)
 
     def _recovery_sec(self) -> float:
         if self._revived:
-            return FINAL_BOSS_ATTACK_RECOVERY_REVIVE
-        return BOSS_ATTACK_RECOVERY_PHASE2 if self._phase2 else BOSS_ATTACK_RECOVERY
+            base = FINAL_BOSS_ATTACK_RECOVERY_REVIVE
+        else:
+            base = BOSS_ATTACK_RECOVERY_PHASE2 if self._phase2 else BOSS_ATTACK_RECOVERY
+        return max(0.05, base * self._ai_recovery_mult)
 
     def _recovery_fireball_sec(self) -> float:
         """Shorter recovery after fireball so next action starts sooner."""
         if self._revived:
-            return FINAL_BOSS_ATTACK_RECOVERY_FIREBALL_REVIVE
-        return BOSS_ATTACK_RECOVERY_FIREBALL_PHASE2 if self._phase2 else BOSS_ATTACK_RECOVERY_FIREBALL_PHASE1
+            base = FINAL_BOSS_ATTACK_RECOVERY_FIREBALL_REVIVE
+        else:
+            base = BOSS_ATTACK_RECOVERY_FIREBALL_PHASE2 if self._phase2 else BOSS_ATTACK_RECOVERY_FIREBALL_PHASE1
+        return max(0.05, base * self._ai_recovery_mult)
 
     def update(
         self,
@@ -345,7 +376,7 @@ class FinalBoss:
                 self._cycle_index = 0
                 self.state = "idle"
                 self._set_state("idle")
-                self.attack_cooldown_timer = 0.0
+                self.attack_cooldown_timer = float(self._ai_post_revive_delay_sec)
                 self._attack_recovery_timer = 0.0
             return
 
