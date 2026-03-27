@@ -1,0 +1,141 @@
+Here is how hazards work in the current code, tied to the files and symbols that implement it.
+
+1. Hazard generation logic
+Where hazards are created
+
+All hazard tiles are written when the room’s tile_grid is built in src/dungeon/room.py.
+Entry point: generate_room(campaign_index, seed) → calls _make_tile_grid(...) then computes hazard_percentage on the resulting grid.
+Functions that own lava/slow counts and placement
+
+_hazard_counts_for_room(biome_index, room_type) → returns (n_lava, n_slow) as integers (fixed per biome + logical room type).
+_make_tile_grid(width, height, room_type, room_index, seed, biome_index) → builds grid, fills TILE_LAVA / TILE_SLOW from those counts.
+Constants: TILE_LAVA = "lava", TILE_SLOW = "slow" in the same file.
+Seed
+
+Hazard placement and counts do not use seed. _make_tile_grid still takes a seed parameter (passed from generate_room), but the function body does not read it for hazards.
+run_seed / procedural seed do affect which room_type you get per campaign_index (via biome room orders), which indirectly picks which row of _hazard_counts_for_room applies — but the hazard math itself is not seed-driven.
+hazard_pct (stored as Room.hazard_percentage)
+
+In generate_room after the grid is built:
+
+room.py
+Lines 329-331
+    total_cells = width * height
+    hazard_count = sum(1 for row in grid for c in row if c in (TILE_LAVA, TILE_SLOW))
+    hazard_percentage = hazard_count / total_cells if total_cells else 0.0
+So it is (number of lava + slow tiles in the full width×height grid) / (width × height) — denominator is entire grid, including wall band tiles (walls are not separate cells; the grid is mostly floor/hazard strings per cell).
+
+2. Biome-wise hazard implementation
+Counts come only from _hazard_counts_for_room’s table (plus special cases for START/SAFE/FINAL_BOSS). These are fixed integers, not ranges and not RNG in code.
+
+Biome (biome_index)	COMBAT-like row (lava, slow)	ELITE row (lava, slow)
+1	(8, 20)	(10, 25)
+2	(11, 25)	(15, 30)
+3	(14, 30)	(18, 35)
+4	(16, 35)	(20, 40)
+FINAL_BOSS (any biome, but only Biome 4 in practice): (10, 5) — handled before the table.
+START / SAFE: (0, 0) — handled before placement; grid returns all floor in playable logic path.
+hazard_pct per biome is not a separate table: it is always derived from the actual tile counts after _make_tile_grid applies caps and exclusions (see below). So the numeric lava_tiles / slow_tiles can be less than the table targets if not enough cells are eligible.
+
+Random / seed-derived?
+
+No randomness in _hazard_counts_for_room or hazard filling in _make_tile_grid.
+Ordering of which eligible cells get lava vs slow is deterministic: cells sorted by
+key=lambda rc: ((rc[0] * 131 + rc[1] * 17) % 97, rc[0], rc[1])
+then first n_lava → lava, next n_slow → slow.
+3. Room type–wise hazard implementation
+COMBAT
+
+Uses the biome’s COMBAT pair from table.
+ELITE
+
+Uses the biome’s ELITE pair.
+AMBUSH
+
+In _hazard_counts_for_room, AMBUSH is remapped to RoomType.COMBAT for lookup → same counts as COMBAT for that biome.
+Layout difference: wall_border_thickness(AMBUSH) returns 4 (vs 2 for most types), so playable area is smaller → fewer eligible cells → n_lava / n_slow may be capped lower in _make_tile_grid (max_cells).
+SAFE
+
+_hazard_counts_for_room returns (0, 0).
+_make_tile_grid returns immediately for SAFE (and START) with no lava/slow.
+MINI_BOSS
+
+Remapped to RoomType.COMBAT for hazard counts → same as COMBAT for that biome.
+Uses standard border 2 (same as COMBAT).
+FINAL_BOSS
+
+Fixed (10, 5) from _hazard_counts_for_room, not from the biome table.
+Standard border 2 in wall_border_thickness.
+START
+
+Treated like SAFE in _make_tile_grid: immediate return, all floor — no hazards.
+CORRIDOR (enum exists)
+
+If used, counts follow COMBAT via the same remap as AMBUSH/MINI_BOSS in _hazard_counts_for_room.
+Shared placement rules (all non-START/SAFE types)
+
+Excludes center 3×3 “safe zone” in playable area.
+Excludes door-adjacent bands: DOOR_HAZARD_MARGIN = 3 — exit zone (bottom-right of playable), entrance zone (bottom-left) for room_index > 0 only.
+Then caps: n_lava = min(n_lava, max_cells), n_slow = min(n_slow, max_cells - n_lava).
+4. Boss rooms
+MINI_BOSS
+
+Hazard counts: same as COMBAT for current biome_index (remap in _hazard_counts_for_room).
+Placement: same exclusion/cap logic as other hazard rooms; border 2.
+FINAL_BOSS
+
+Fixed target counts (10, 5) in _hazard_counts_for_room.
+Still subject to eligible cell count — if max_cells < 15, counts are reduced by the min(...) caps.
+No separate “boss override” module for hazards; it’s all in room.py.
+5. Determinism
+Is hazard generation deterministic?
+
+Yes, for a given (biome_index, room_type, room_index, width, height):
+Same table targets, same sort order, same exclusion geometry.
+seed does not enter hazard computation in _make_tile_grid.
+What depends on run_seed?
+
+Not the hazard formulas directly.
+Indirectly: generate_room passes seed into _room_order_biome1 / room_order_biome2 / etc., which picks room_type per campaign_index. Different seeds → different type per index → different (n_lava, n_slow) row applied.
+derived_hazard_seed
+
+Not used anywhere for generation.
+In src/game/phase1_seed_debug.py, the log line is a fixed string:
+"derived_hazard_seed: N/A (hazards deterministic by biome_index + room_type)"
+in _log_projected_all_rooms, log_room_loaded, and the log_spawn_setup branch that logs RNG (no numeric hazard seed is computed).
+6. Logging verification (code → log fields)
+Primary path (full run projection)
+
+log_run_start → _log_projected_all_rooms(run_seed) in phase1_seed_debug.py.
+For each room_index, it builds room = generate_room(room_index, run_seed) and then:
+
+phase1_seed_debug.py
+Lines 233-235
+        lava = sum(row.count(TILE_LAVA) for row in room.tile_grid)
+        slow = sum(row.count(TILE_SLOW) for row in room.tile_grid)
+        hazard_pct = float(getattr(room, "hazard_percentage", 0.0))
+Log block:
+
+phase1_seed_debug.py
+Lines 300-304
+                "=== HAZARDS ===",
+                f"room_index: {room_index}",
+                f"lava_tiles: {lava}",
+                f"slow_tiles: {slow}",
+                f"hazard_pct: {hazard_pct:.6f}",
+So:
+
+Log field	Source in code
+lava_tiles	Count of TILE_LAVA in room.tile_grid
+slow_tiles	Count of TILE_SLOW in room.tile_grid
+hazard_pct	room.hazard_percentage set in generate_room as (lava+slow)/total_cells
+log_room_loaded
+
+Same counting and hazard_percentage read when the room wasn’t already in _ROOM_LOGGED_ONCE (usually superseded by projection).
+log_spawn_setup
+
+Branches for SAFE, MINI_BOSS, FINAL_BOSS, and COMBAT/AMBUSH/ELITE/START write spawn/RNG lines but do not append === HAZARDS === / lava_tiles / slow_tiles / hazard_pct in those paths. So for a normal run that already projected all rooms, hazard triplets come from _log_projected_all_rooms (and optionally log_room_loaded if projection is off / room not logged).
+Runtime behavior (not generation)
+src/dungeon/hazard_system.py — class HazardSystem: holds a reference to Room, uses Room.get_tile_type to implement is_lava_tile / is_slow_tile, lava animation timing, damage/slow factors from game.config. It does not generate or mutate the grid.
+src/dungeon/room_controller.py — constructs HazardSystem, calls set_room(room) when the room changes, update(dt) each tick.
+That is the actual split: generation + tile storage in room.py; query + effects in hazard_system.py + game_scene.py / config.

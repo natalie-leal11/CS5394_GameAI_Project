@@ -8,6 +8,7 @@ import pygame
 
 from entities.enemy_base import apply_anti_stuck_velocity, update_stuck_tracking
 from game.config import (
+    enemy_movement_size_tuple,
     MINI_BOSS_SIZE,
     MINI_BOSS_BASE_HP,
     MINI_BOSS_BASE_DAMAGE,
@@ -52,6 +53,21 @@ BIOME3_MINIBOSS_PHASE2_HP_RATIO = 0.5  # Phase 2 at 50% HP
 
 # Shared cache so first load (or preload) is reused by all instances; avoids stall when boss spawns.
 _BIOME3_MINIBOSS_ANIMATION_CACHE: dict[str, list[pygame.Surface]] | None = None
+
+# AI Director (Biome 3 mini boss): set by GameScene before spawn; reset to neutral after tuning.
+_DIRECTOR_FIREBALL_CD_MULT: float = 1.0
+_DIRECTOR_FIREBALL_TELEGRAPH_MULT: float = 1.0
+
+
+def configure_biome3_miniboss_director(
+    *,
+    fireball_cd_mult: float = 1.0,
+    fireball_telegraph_mult: float = 1.0,
+) -> None:
+    """Deterministic tuning only; does not change attack types or phase logic."""
+    global _DIRECTOR_FIREBALL_CD_MULT, _DIRECTOR_FIREBALL_TELEGRAPH_MULT
+    _DIRECTOR_FIREBALL_CD_MULT = max(0.5, min(1.5, float(fireball_cd_mult)))
+    _DIRECTOR_FIREBALL_TELEGRAPH_MULT = max(0.75, min(1.35, float(fireball_telegraph_mult)))
 
 
 def preload_biome3_miniboss_animations() -> None:
@@ -99,6 +115,7 @@ class Biome3MiniBoss:
         self.damage = float(MINI_BOSS_BASE_DAMAGE)
         self.move_speed = float(MINI_BOSS_MOVE_SPEED)
         self.size = MINI_BOSS_SIZE
+        self.movement_size = enemy_movement_size_tuple("mini_boss")
         self.velocity_xy = (0.0, 0.0)
         self.facing = (1.0, 0.0)
         self.attack_cooldown_timer = 0.0
@@ -167,6 +184,8 @@ class Biome3MiniBoss:
             fps = 5
         elif new_state == "move":
             fps = 6
+        elif new_state == "fireball":
+            fps = max(4.0, 6.0 / max(0.75, _DIRECTOR_FIREBALL_TELEGRAPH_MULT))
         elif new_state == "death":
             fps = 6
             loop = False
@@ -174,6 +193,11 @@ class Biome3MiniBoss:
 
     def get_hitbox_rect(self) -> pygame.Rect:
         w, h = self.size
+        x, y = self.world_pos
+        return pygame.Rect(x - w / 2, y - h / 2, w, h)
+
+    def get_movement_hitbox_rect(self) -> pygame.Rect:
+        w, h = self.movement_size
         x, y = self.world_pos
         return pygame.Rect(x - w / 2, y - h / 2, w, h)
 
@@ -252,7 +276,7 @@ class Biome3MiniBoss:
                     image_path=BIOME3_MINIBOSS_FIREBALL_IMAGE_PATH,
                     size=BIOME3_MINIBOSS_FIREBALL_SIZE,
                 )
-                self.fireball_cooldown_timer = float(BIOME3_MINIBOSS_FIREBALL_COOLDOWN_SEC)
+                self.fireball_cooldown_timer = float(BIOME3_MINIBOSS_FIREBALL_COOLDOWN_SEC) * _DIRECTOR_FIREBALL_CD_MULT
                 vx = vy = 0.0
             elif dist > 1e-3:
                 nx = dx / dist

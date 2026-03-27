@@ -20,7 +20,7 @@ Do NOT redesign the menu, controls, room art, start screen, victory screen, room
 ## OFFICIAL SOURCE OF TRUTH
 
 If the documents disagree:
-1. `AI_Dungeon_SRS.pdf` has final authority.
+1. `AI_Dungeon_ProjSRS.md` has final authority.
 2. `AI_Dungeon_ProjGuide(v2).md` is secondary guidance.
 3. `AI_Dungeon_Parameters_discuss_FULL.md` is supporting detail.
 

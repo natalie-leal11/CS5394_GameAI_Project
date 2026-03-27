@@ -2,12 +2,24 @@
 
 from dungeon.room import RoomType
 from game.config import (
+    SEED,
     SPAWN_SLOT_DELAY_SEC,
     BEGINNER_TEST_MODE,
 )
 
 
-def get_biome3_spawn_specs(room_idx: int, room_type: RoomType, Swarm, Flanker, Brute, Heavy, Ranged, MiniBoss):
+def get_biome3_spawn_specs(
+    room_idx: int,
+    room_type: RoomType,
+    Swarm,
+    Flanker,
+    Brute,
+    Heavy,
+    Ranged,
+    MiniBoss,
+    *,
+    seed: int | None = None,
+):
     """
     Return spawn_specs for Biome 3 room. (enemy_cls, elite, start_time_sec, telegraph_sec or None).
     room_idx: 0-7 (maps to campaign rooms 16-23).
@@ -59,28 +71,13 @@ def get_biome3_spawn_specs(room_idx: int, room_type: RoomType, Swarm, Flanker, B
         if room_idx == 7:  # Room 23 Mini Boss (placeholder until Phase 3)
             return [(MiniBoss, False, 2.0, None)]
 
-    # Non-beginner: generic by room type
-    if room_type == RoomType.MINI_BOSS:
-        return [(MiniBoss, False, 2.0, None)]
-    if room_type == RoomType.ELITE:
-        return [
-            (Brute, True, 0.0, None),
-            (Ranged, True, SPAWN_SLOT_DELAY_SEC, None),
-            (Swarm, False, SPAWN_SLOT_DELAY_SEC * 2, None),
-        ]
-    if room_type == RoomType.AMBUSH:
-        return [
-            (Swarm, False, 0.0, 1.5),
-            (Flanker, False, SPAWN_SLOT_DELAY_SEC, 1.5),
-            (Ranged, False, SPAWN_SLOT_DELAY_SEC * 2, 1.5),
-        ]
-    # COMBAT
-    return [
-        (Swarm, False, 0.0, None),
-        (Flanker, False, SPAWN_SLOT_DELAY_SEC, None),
-        (Ranged, False, SPAWN_SLOT_DELAY_SEC * 2, None),
-        (Brute, False, SPAWN_SLOT_DELAY_SEC * 3, None),
-    ]
+    from dungeon.seeded_encounter_specs import build_biome3_spawn_specs
+
+    s = SEED if seed is None else int(seed)
+    campaign_index = 16 + int(room_idx)
+    return build_biome3_spawn_specs(
+        room_idx, room_type, campaign_index, s, Swarm, Flanker, Brute, Heavy, Ranged, MiniBoss
+    )
 
 
 def get_biome3_spawn_pattern(room_type: RoomType):

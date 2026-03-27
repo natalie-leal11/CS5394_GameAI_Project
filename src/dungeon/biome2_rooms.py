@@ -8,6 +8,7 @@ from dungeon.biome2_mini_boss_encounter import (
     get_biome2_mini_boss_adds_schedule,
 )
 from game.config import (
+    SEED,
     SPAWN_SLOT_DELAY_SEC,
     BEGINNER_TEST_MODE,
     MIN_DISTANCE_FROM_PLAYER_PX,
@@ -38,7 +39,17 @@ def _biome2_mini_boss_spawn_specs(Swarm, Flanker, Brute, Heavy, MiniBoss):
 # Elite spacing = MIN_DISTANCE_BETWEEN_ENEMIES_PX + ELITE_EXTRA_SPACING_PX = 150 px
 
 
-def get_biome2_spawn_specs(room_idx: int, room_type: RoomType, Swarm, Flanker, Brute, Heavy, MiniBoss):
+def get_biome2_spawn_specs(
+    room_idx: int,
+    room_type: RoomType,
+    Swarm,
+    Flanker,
+    Brute,
+    Heavy,
+    MiniBoss,
+    *,
+    seed: int | None = None,
+):
     """
     Return spawn_specs for Biome 2 room. (enemy_cls, elite, start_time_sec, telegraph_sec or None).
     room_idx: 0-7 (maps to logical rooms 8-15).
@@ -87,31 +98,14 @@ def get_biome2_spawn_specs(room_idx: int, room_type: RoomType, Swarm, Flanker, B
         if room_idx == 7:  # Room 15 Mini Boss (with adds)
             return _biome2_mini_boss_spawn_specs(Swarm, Flanker, Brute, Heavy, MiniBoss)
 
-    # Non-beginner: generic by room type
-    if room_type == RoomType.MINI_BOSS:
-        return _biome2_mini_boss_spawn_specs(Swarm, Flanker, Brute, Heavy, MiniBoss)
-    if room_type == RoomType.ELITE:
-        elite = True
-        time_acc = 0.0
-        return [
-            (Brute, elite, time_acc, None),
-            (Swarm, elite, time_acc + SPAWN_SLOT_DELAY_SEC, None),
-            (Swarm, False, time_acc + SPAWN_SLOT_DELAY_SEC * 2, None),
-        ]
-    if room_type == RoomType.AMBUSH:
-        return [
-            (Swarm, False, 0.0, 1.5),
-            (Flanker, False, SPAWN_SLOT_DELAY_SEC, 1.5),
-        ]
-    # COMBAT
-    elite = False
-    time_acc = 0.0
-    return [
-        (Swarm, elite, time_acc, None),
-        (Flanker, elite, time_acc + SPAWN_SLOT_DELAY_SEC, None),
-        (Brute, elite, time_acc + SPAWN_SLOT_DELAY_SEC * 2, None),
-        (Heavy, elite, time_acc + SPAWN_SLOT_DELAY_SEC * 3, None),
-    ]
+    # Non-beginner: SRS seed-controlled composition
+    from dungeon.seeded_encounter_specs import build_biome2_spawn_specs
+
+    s = SEED if seed is None else int(seed)
+    campaign_index = 8 + int(room_idx)
+    return build_biome2_spawn_specs(
+        room_idx, room_type, campaign_index, s, Swarm, Flanker, Brute, Heavy, MiniBoss
+    )
 
 
 def get_biome2_spawn_pattern(room_type: RoomType):

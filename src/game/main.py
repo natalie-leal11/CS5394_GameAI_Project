@@ -57,6 +57,12 @@ def main():
         screen.blit(scaled, (0, 0))
         pygame.display.flip()
 
+    try:
+        from game.phase1_seed_debug import log_end_run_summary
+
+        log_end_run_summary()
+    except Exception as e:
+        print(f"[phase1_seed_debug] end-run summary failed: {e}", file=sys.stderr)
     pygame.quit()
 
 

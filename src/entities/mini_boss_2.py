@@ -7,6 +7,7 @@ import pygame
 
 from entities.enemy_base import apply_anti_stuck_velocity, update_stuck_tracking
 from game.config import (
+    enemy_movement_size_tuple,
     MINI_BOSS_SIZE,
     MINI_BOSS_BASE_HP,
     MINI_BOSS_BASE_DAMAGE,
@@ -47,6 +48,7 @@ class MiniBoss2:
         self.damage = float(MINI_BOSS_BASE_DAMAGE)
         self.move_speed = float(MINI_BOSS_MOVE_SPEED)
         self.size = MINI_BOSS_SIZE
+        self.movement_size = enemy_movement_size_tuple("mini_boss_2")
         self.velocity_xy = (0.0, 0.0)
         self.facing = (1.0, 0.0)
         self.attack_cooldown_timer = 0.0
@@ -105,6 +107,11 @@ class MiniBoss2:
 
     def get_hitbox_rect(self) -> pygame.Rect:
         w, h = self.size
+        x, y = self.world_pos
+        return pygame.Rect(x - w / 2, y - h / 2, w, h)
+
+    def get_movement_hitbox_rect(self) -> pygame.Rect:
+        w, h = self.movement_size
         x, y = self.world_pos
         return pygame.Rect(x - w / 2, y - h / 2, w, h)
 

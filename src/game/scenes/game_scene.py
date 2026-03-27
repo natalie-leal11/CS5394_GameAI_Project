@@ -36,6 +36,8 @@ from game.config import (
     SAFE_ROOM_HEAL_PERCENT,
     SAFE_ROOM_OVERHEAL_CAP_RATIO,
     HEAL_DROP_CHANCE,
+    AMBUSH_SPAWN_RADIUS_PX,
+    TRIANGLE_OFFSET_PX,
     BEGINNER_TEST_MODE,
     PLAYER_BASE_HP,
     BIOME4_BOSS_UI_ANCHOR_X,
@@ -48,6 +50,10 @@ from game.config import (
     BIOME4_BOSS_TELEGRAPH_METEOR_SEC,
     FINAL_BOSS_METEOR_DAMAGE,
     FINAL_BOSS_REVIVE_MESSAGE_DURATION_SEC,
+    PLAYER_MOVEMENT_HITBOX_W,
+    PLAYER_MOVEMENT_HITBOX_H,
+    DEBUG_TOP_EDGE,
+    DEBUG_MOVEMENT_HITBOX,
 )
 
 # Biome 3 Room 21 safe room: campaign index for upgrade panel (deterministic 3 choices, pick 1).
@@ -67,11 +73,21 @@ from entities.heavy import Heavy
 from entities.ranged import Ranged
 from entities.mini_boss import MiniBoss
 from entities.mini_boss_2 import MiniBoss2
-from entities.biome3_miniboss import Biome3MiniBoss, preload_biome3_miniboss_animations
+from entities.biome3_miniboss import (
+    Biome3MiniBoss,
+    configure_biome3_miniboss_director,
+    preload_biome3_miniboss_animations,
+)
 from entities.final_boss import FinalBoss, preload_final_boss_animations
 from entities.training_dummy import TrainingDummy
 from entities import enemy_base as enemy_base_module
-from entities.enemy_base import enemy_min_separation, enemy_type_priority, preload_enemy_animations
+from entities.enemy_base import (
+    enemy_min_separation,
+    enemy_movement_half_extents_for_class,
+    enemy_type_key_for_class,
+    enemy_type_priority,
+    preload_enemy_animations,
+)
 from systems.combat import apply_player_attacks, apply_enemy_attacks, apply_projectile_hits, DamageEvent
 from systems.spawn_system import SpawnSystem
 from systems.spawn_helper import (
@@ -83,12 +99,14 @@ from systems.spawn_helper import (
 )
 from systems.vfx import VfxManager
 from systems.movement import apply_player_movement
+from systems.collisions import tile_range_for_centered_aabb
 from game.asset_loader import load_image
 from dungeon.room_controller import RoomController
 from dungeon.room import RoomType, TILE_FLOOR, TILE_LAVA, TILE_SLOW, total_campaign_rooms
 from dungeon.door_system import DoorState
 from dungeon.biome2_rooms import get_biome2_spawn_specs, get_biome2_spawn_pattern
 from dungeon.biome3_rooms import get_biome3_spawn_specs, get_biome3_spawn_pattern
+from dungeon.biome1_rooms import get_biome1_spawn_specs
 from dungeon.biome4_rooms import (
     get_biome4_spawn_specs,
     get_biome4_spawn_pattern,
@@ -108,6 +126,38 @@ from dungeon.biome4_visuals import (
     load_boss_fx_image,
     load_boss_projectile,
 )
+from game.rng import initialize_run_seed, get_run_seed, get_variant_id
+from game.phase1_seed_debug import log_run_start, log_spawn_setup
+from game.ai.ai_director import AIDirector
+from game.ai.ai_logger import AILogger
+from game.ai.biome1_director_spawn import (
+    adjust_biome1_spawn_specs,
+    biome1_director_spawn_eligible,
+    biome1_effective_heal_drop_chance,
+    biome1_trial_phase_active,
+)
+from game.ai.biome2_director_spawn import (
+    adjust_biome2_spawn_specs,
+    biome2_director_spawn_eligible,
+    biome2_effective_heal_drop_chance,
+    biome2_safe_room_heal_multiplier,
+)
+from game.ai.biome3_director_spawn import (
+    adjust_biome3_spawn_specs,
+    apply_biome3_ranged_position_offsets,
+    biome3_director_spawn_eligible,
+    biome3_effective_heal_drop_chance,
+    biome3_safe_room_heal_multiplier,
+)
+from game.ai.biome4_director_spawn import (
+    adjust_biome4_spawn_specs,
+    biome4_director_spawn_eligible,
+    biome4_effective_heal_drop_chance,
+    biome4_safe_room_heal_multiplier,
+)
+from game.ai.metrics_tracker import MetricsTracker
+from game.debug.debug_overlay import DebugOverlay
+from game.ai.player_model import PlayerModel, PlayerStateClass, build_player_model_summary
 
 # Requirements_Analysis_Biome1.md / REBUILT: gameplay background (Room 0 / arena).
 GAMEPLAY_BG_PATH = "assets/backgrounds/room0_bg.png"
@@ -142,6 +192,8 @@ class GameScene(BaseScene):
     def __init__(self, scene_manager):
         super().__init__(scene_manager)
         self._camera_target_world = (LOGICAL_W / 2.0, LOGICAL_H / 2.0)
+        self._run_seed: int = int(get_run_seed())
+        self._variant_id: int = int(get_variant_id())
         self._player: Player | None = None
         self._enemies: list = []
         self._projectiles: list = []
@@ -246,6 +298,17 @@ class GameScene(BaseScene):
         self._room0_prop_exit: pygame.Surface | None = None
         self._room0_prompt_bg: pygame.Surface | None = None
         self._room0_story_panel_surf: pygame.Surface | None = None
+        self._metrics = MetricsTracker()
+        self._metrics_pending_room_start = False
+        self.player_model = PlayerModel()
+        self.player_state: PlayerStateClass | None = None
+        self.ai_director = AIDirector()
+        # File-backed logging starts in reset() with initialize_run_seed(); no file until a run begins.
+        self.ai_logger = AILogger(run_seed=None)
+        self._debug_overlay = DebugOverlay(self)
+        # One-room hazard relief after heavy lava damage (Biome 3 / 4 director)
+        self._pending_b3_hazard_relief: float = 1.0
+        self._pending_b4_hazard_relief: float = 1.0
 
     def _iter_door_groups(self, doors: list) -> list[tuple[object, int, int]]:
         """Group vertical 2-tile doors by (tile_x, tile_y). Returns (door, top_ty, bottom_ty)."""
@@ -293,6 +356,15 @@ class GameScene(BaseScene):
 
     def reset(self) -> None:
         """Reset player, enemies, and input so GameScene can be reused after death."""
+        # Seed determinism: one run seed generated at run start.
+        run_seed = initialize_run_seed()
+        self._run_seed = int(run_seed)
+        self._variant_id = int(get_variant_id())
+        self._metrics.start_run(run_seed)
+        self._metrics_pending_room_start = True
+        self.player_state = None
+        self.ai_logger = AILogger(run_seed=int(run_seed))
+        log_run_start(run_seed)
         self._camera_target_world = (LOGICAL_W / 2.0, LOGICAL_H / 2.0)
         self._player = None
         self._enemies = []
@@ -359,14 +431,89 @@ class GameScene(BaseScene):
         self._safe_room_biome4_picks_remaining = 0
         self._safe_room_biome4_chosen: set[int] = set()
 
+    def _player_hp_percent(self) -> float:
+        p = self._player
+        if p is None:
+            return 100.0
+        mx = float(getattr(p, "max_hp", 1.0))
+        if mx <= 0:
+            return 100.0
+        return 100.0 * float(p.hp) / mx
+
+    def _final_boss_director_kwargs(self) -> dict:
+        """Small deterministic tuning from AI Director boss_pressure (does not change attack types)."""
+        bp = getattr(self.ai_director, "boss_pressure", "medium")
+        if bp == "low":
+            return {
+                "ai_telegraph_mult": 1.12,
+                "ai_cooldown_mult": 1.1,
+                "ai_recovery_mult": 1.08,
+                "ai_post_revive_delay_sec": 1.5,
+            }
+        if bp == "high":
+            return {
+                "ai_telegraph_mult": 0.9,
+                "ai_cooldown_mult": 0.94,
+                "ai_recovery_mult": 0.92,
+                "ai_post_revive_delay_sec": 0.0,
+            }
+        return {
+            "ai_telegraph_mult": 1.0,
+            "ai_cooldown_mult": 1.0,
+            "ai_recovery_mult": 1.0,
+            "ai_post_revive_delay_sec": 0.0,
+        }
+
+    def _update_player_model_after_room_end(self) -> None:
+        """After MetricsTracker.end_room; does not touch gameplay."""
+        summary = build_player_model_summary(
+            self._metrics.run,
+            hp_percent_current=self._player_hp_percent(),
+        )
+        self.player_state = self.player_model.classify(summary).player_state
+        self.ai_director.update(self.player_state)
+        # Heavy hazard damage in Biome 3/4 → one-room relief factor on next encounter (spawn tuning / debug).
+        hist = getattr(self._metrics.run, "room_history", None)
+        if hist:
+            last_rm = hist[-1]
+            hl = float(getattr(last_rm, "damage_taken_by_enemy_type", {}).get("hazard_lava", 0.0))
+            bio = int(getattr(last_rm, "current_biome_index", 0))
+            if bio == 3 and hl >= 22.0:
+                self._pending_b3_hazard_relief = 0.88
+            if bio == 4 and hl >= 22.0:
+                self._pending_b4_hazard_relief = 0.88
+        run = self._metrics.run
+        rr = run.room_result
+        room_result_s = rr.value if hasattr(rr, "value") else str(rr)
+        ps = self.player_state.name if self.player_state is not None else None
+        self.ai_logger.log_room(
+            {
+                "seed": int(run.run_seed),
+                "room_index": int(run.current_room_index),
+                "biome_index": int(run.current_biome_index),
+                "player_state": ps,
+                "difficulty_modifier": float(self.ai_director.difficulty_modifier),
+                "enemy_adjustment": int(self.ai_director.effective_enemy_adjustment()),
+                "reinforcement_chance": float(self.ai_director.reinforcement_chance),
+                "room_result": room_result_s,
+                "hp_end": float(run.hp_percent_end_room),
+                "damage_taken": float(run.damage_taken_in_room),
+            }
+        )
+
+    def get_player_state(self):
+        return self.player_state
+
     def _ensure_room(self) -> None:
         """Phase 7: ensure room controller exists when USE_PHASE7_DUNGEON; else leave None (single arena)."""
         if not USE_PHASE7_DUNGEON:
             return
         if self._room_controller is None:
-            self._room_controller = RoomController(SEED)
+            seed_now = int(get_run_seed())
+            self._room_controller = RoomController(seed_now)
             self._room_controller.load_room(START_ROOM_INDEX)
             self._room_cleared_flag = False
+            self._metrics_pending_room_start = True
             room0 = self._room_controller.current_room
             if room0 is not None and room0.room_type == RoomType.FINAL_BOSS:
                 self._final_boss_spawn_timer = BIOME4_FINAL_BOSS_SPAWN_DELAY_SEC
@@ -434,9 +581,11 @@ class GameScene(BaseScene):
 
         room = self._room_controller.current_room if self._room_controller else None
         if room is not None:
-            min_x, min_y, max_x, max_y = room.playable_bounds_pixels()
-            room_bounds = (min_x, min_y, max_x, max_y)
-            self._spawn_system = SpawnSystem(self._vfx, room_bounds=room_bounds)
+            # Per-slot spawn clamp uses enemy class + room in SpawnSystem.update (no generic half-max).
+            self._spawn_system = SpawnSystem(self._vfx, room_bounds=None)
+            b2_spawn_mods: dict[str, float] = {}
+            b3_spawn_mods: dict[str, float] = {}
+            b4_spawn_mods: dict[str, float] = {}
             stx, sty = room.spawn_tile
             rtype = room.room_type
             room_idx = self._room_controller.current_room_index
@@ -448,27 +597,129 @@ class GameScene(BaseScene):
                 center_y = (top_ty + bottom_ty + 1) * TILE_SIZE / 2.0
                 door_positions.append((d.world_x, center_y))
             player_center = room.world_pos_for_tile(room.spawn_tile[0], room.spawn_tile[1])
-            rng = random.Random(SEED + room.room_index * 10000)
+            active_seed = int(get_run_seed())
+            rng = random.Random(active_seed + room.room_index * 10000)
 
             # Spawn specs: (enemy_cls, elite, start_time_sec, telegraph_sec or None)
             spawn_specs: list[tuple] = []
             if room_idx >= BIOME4_START_INDEX:  # Biome 4 rooms 24-29; Room 29 FINAL_BOSS metadata only
                 spawn_specs = get_biome4_spawn_specs(
-                    room_idx - BIOME4_START_INDEX, rtype, Swarm, Flanker, Brute, Heavy, Ranged
+                    room_idx - BIOME4_START_INDEX,
+                    rtype,
+                    Swarm,
+                    Flanker,
+                    Brute,
+                    Heavy,
+                    Ranged,
+                    seed=active_seed,
                 )
+                b4b = int(getattr(room, "biome_index", 1))
+                if biome4_director_spawn_eligible(
+                    room_idx=room_idx,
+                    biome_index=b4b,
+                    room_type=rtype,
+                    beginner_test_mode=BEGINNER_TEST_MODE,
+                ):
+                    hte4 = float(self.ai_director.hazard_tune_factor_b4) * float(self._pending_b4_hazard_relief)
+                    spawn_specs, b4_spawn_mods = adjust_biome4_spawn_specs(
+                        spawn_specs,
+                        room_type=rtype,
+                        room_idx=room_idx,
+                        biome_index=b4b,
+                        difficulty_modifier=self.ai_director.difficulty_modifier,
+                        enemy_adjustment=self.ai_director.enemy_adjustment,
+                        reinforcement_chance_b4=self.ai_director.reinforcement_chance_b4,
+                        pressure_level=self.ai_director.pressure_level,
+                        composition_bias_b4=self.ai_director.composition_bias_b4,
+                        pacing_bias=self.ai_director.pacing_bias,
+                        player_state_name=self.ai_director.last_player_state_name,
+                        hazard_tune_factor=hte4,
+                        Swarm=Swarm,
+                        Flanker=Flanker,
+                        Brute=Brute,
+                        Heavy=Heavy,
+                        Ranged=Ranged,
+                    )
+                    self._pending_b4_hazard_relief = 1.0
             elif room_idx >= BIOME3_START_INDEX:  # Biome 3 rooms 16-23; Room 23 uses Biome3MiniBoss
+                configure_biome3_miniboss_director(fireball_cd_mult=1.0, fireball_telegraph_mult=1.0)
+                if room_idx == 23 and rtype == RoomType.MINI_BOSS:
+                    psn_b3 = self.ai_director.last_player_state_name
+                    if psn_b3 == "STRUGGLING":
+                        configure_biome3_miniboss_director(fireball_cd_mult=1.15, fireball_telegraph_mult=1.12)
+                    elif psn_b3 == "DOMINATING":
+                        configure_biome3_miniboss_director(fireball_cd_mult=0.9, fireball_telegraph_mult=0.94)
                 spawn_specs = get_biome3_spawn_specs(
-                    room_idx - BIOME3_START_INDEX, rtype, Swarm, Flanker, Brute, Heavy, Ranged, Biome3MiniBoss
+                    room_idx - BIOME3_START_INDEX,
+                    rtype,
+                    Swarm,
+                    Flanker,
+                    Brute,
+                    Heavy,
+                    Ranged,
+                    Biome3MiniBoss,
+                    seed=active_seed,
                 )
                 # Preload boss and add-enemy assets when this room will spawn Biome3MiniBoss to avoid stall on spawn and when boss calls for help.
                 if any(s[0] is Biome3MiniBoss for s in spawn_specs):
                     preload_biome3_miniboss_animations()
                     preload_enemy_animations("swarm")
                     preload_enemy_animations("flanker")
+                b3b = int(getattr(room, "biome_index", 1))
+                if biome3_director_spawn_eligible(
+                    room_idx=room_idx,
+                    biome_index=b3b,
+                    room_type=rtype,
+                    beginner_test_mode=BEGINNER_TEST_MODE,
+                ):
+                    hte3 = float(self.ai_director.hazard_tune_factor_b3) * float(self._pending_b3_hazard_relief)
+                    spawn_specs, b3_spawn_mods = adjust_biome3_spawn_specs(
+                        spawn_specs,
+                        room_type=rtype,
+                        room_idx=room_idx,
+                        biome_index=b3b,
+                        difficulty_modifier=self.ai_director.difficulty_modifier,
+                        enemy_adjustment=self.ai_director.enemy_adjustment,
+                        reinforcement_chance_b3=self.ai_director.reinforcement_chance_b3,
+                        pressure_level=self.ai_director.pressure_level,
+                        composition_bias_b3=self.ai_director.composition_bias_b3,
+                        ranged_bias_b3=self.ai_director.ranged_bias_b3,
+                        player_state_name=self.ai_director.last_player_state_name,
+                        hazard_tune_factor=hte3,
+                        Swarm=Swarm,
+                        Flanker=Flanker,
+                        Brute=Brute,
+                        Heavy=Heavy,
+                        Ranged=Ranged,
+                    )
+                    self._pending_b3_hazard_relief = 1.0
             elif room_idx >= 8:  # Biome 2 rooms (campaign indices 8-15) use MiniBoss2
                 spawn_specs = get_biome2_spawn_specs(
-                    room_idx - 8, rtype, Swarm, Flanker, Brute, Heavy, MiniBoss2
+                    room_idx - 8, rtype, Swarm, Flanker, Brute, Heavy, MiniBoss2, seed=active_seed
                 )
+                b2b = int(getattr(room, "biome_index", 1))
+                if biome2_director_spawn_eligible(
+                    room_idx=room_idx,
+                    biome_index=b2b,
+                    room_type=rtype,
+                    beginner_test_mode=BEGINNER_TEST_MODE,
+                ):
+                    spawn_specs, b2_spawn_mods = adjust_biome2_spawn_specs(
+                        spawn_specs,
+                        room_type=rtype,
+                        room_idx=room_idx,
+                        biome_index=b2b,
+                        difficulty_modifier=self.ai_director.difficulty_modifier,
+                        enemy_adjustment=self.ai_director.enemy_adjustment,
+                        reinforcement_chance_b2=self.ai_director.reinforcement_chance_b2,
+                        pressure_level=self.ai_director.pressure_level,
+                        composition_bias_b2=self.ai_director.composition_bias_b2,
+                        player_state_name=self.ai_director.last_player_state_name,
+                        Swarm=Swarm,
+                        Flanker=Flanker,
+                        Brute=Brute,
+                        Heavy=Heavy,
+                    )
             elif BEGINNER_TEST_MODE:
                 if room_idx == 0 or rtype in (RoomType.START, RoomType.SAFE):
                     pass
@@ -497,56 +748,116 @@ class GameScene(BaseScene):
                     spawn_specs = [(MiniBoss, False, 2.0, None)]
             elif rtype in (RoomType.START, RoomType.SAFE):
                 pass
-            elif rtype == RoomType.MINI_BOSS:
-                spawn_specs = [(MiniBoss, False, 2.0, None)]
             else:
-                elite = rtype == RoomType.ELITE
-                time_acc = 0.0
-                spawn_specs = [
-                    (Swarm, elite, time_acc, None),
-                    (Flanker, elite, time_acc + SPAWN_SLOT_DELAY_SEC, None),
-                    (Brute, elite, time_acc + SPAWN_SLOT_DELAY_SEC * 2, None),
-                ]
+                spawn_specs = get_biome1_spawn_specs(
+                    room_idx, rtype, Swarm, Flanker, Brute, MiniBoss, seed=active_seed
+                )
+                bidx = int(getattr(room, "biome_index", 1))
+                if biome1_director_spawn_eligible(
+                    room_idx=room_idx,
+                    biome_index=bidx,
+                    room_type=rtype,
+                    beginner_test_mode=BEGINNER_TEST_MODE,
+                ):
+                    if biome1_trial_phase_active(room_idx, bidx):
+                        spawn_specs = adjust_biome1_spawn_specs(
+                            spawn_specs,
+                            room_type=rtype,
+                            room_idx=room_idx,
+                            biome_index=bidx,
+                            difficulty_modifier=1.0,
+                            enemy_adjustment=0,
+                            reinforcement_chance=0.0,
+                            composition_bias="normal",
+                            Swarm=Swarm,
+                            Flanker=Flanker,
+                            Brute=Brute,
+                        )
+                    else:
+                        spawn_specs = adjust_biome1_spawn_specs(
+                            spawn_specs,
+                            room_type=rtype,
+                            room_idx=room_idx,
+                            biome_index=bidx,
+                            difficulty_modifier=self.ai_director.difficulty_modifier,
+                            enemy_adjustment=self.ai_director.enemy_adjustment,
+                            reinforcement_chance=self.ai_director.reinforcement_chance,
+                            composition_bias=self.ai_director.composition_bias,
+                            Swarm=Swarm,
+                            Flanker=Flanker,
+                            Brute=Brute,
+                        )
 
             # Advanced spawn: spread / triangle / ambush by room type; world_pos per slot.
+            # Movement clamp / spawn acceptance use same per-class body as in-game movement.
+            spawn_move_et = enemy_type_key_for_class(spawn_specs[0][0]) if spawn_specs else "swarm"
             positions_world: list[tuple[float, float]] = []
             if room_idx >= BIOME4_START_INDEX:  # Biome 4 rooms
                 pattern = get_biome4_spawn_pattern(rtype)
+                b4_amb = b4_spawn_mods.get("ambush_radius_px")
+                b4_tri = b4_spawn_mods.get("triangle_offset_px")
                 if pattern == "triangle":
                     positions_world = spawn_triangle(
                         room, player_center, is_elite=True, rng=rng, door_positions=door_positions,
-                        offset_px=BIOME4_TRIANGLE_OFFSET_PX,
+                        offset_px=b4_tri if b4_tri is not None else BIOME4_TRIANGLE_OFFSET_PX,
+                        enemy_type=spawn_move_et,
                     )
                 elif pattern == "ambush":
                     positions_world = spawn_ambush(
                         room, player_center, len(spawn_specs), rng=rng,
-                        radius_px=BIOME4_AMBUSH_RADIUS_PX,
+                        radius_px=b4_amb if b4_amb is not None else BIOME4_AMBUSH_RADIUS_PX,
+                        enemy_type=spawn_move_et,
                     )
                 elif pattern == "spread":
                     positions_world = spawn_spread(
                         room, player_center, len(spawn_specs),
                         is_elite=(rtype == RoomType.ELITE),
                         rng=rng, door_positions=door_positions,
+                        enemy_type=spawn_move_et,
                     )
                 else:
                     positions_world = []
             elif room_idx >= BIOME3_START_INDEX:  # Biome 3 rooms
                 pattern = get_biome3_spawn_pattern(rtype)
+                b3_amb = b3_spawn_mods.get("ambush_radius_px")
+                b3_tri = b3_spawn_mods.get("triangle_offset_px")
                 if pattern == "triangle":
-                    positions_world = spawn_triangle(room, player_center, is_elite=True, rng=rng, door_positions=door_positions)
+                    positions_world = spawn_triangle(
+                        room,
+                        player_center,
+                        is_elite=True,
+                        rng=rng,
+                        door_positions=door_positions,
+                        offset_px=b3_tri if b3_tri is not None else TRIANGLE_OFFSET_PX,
+                        enemy_type=spawn_move_et,
+                    )
                 elif pattern == "ambush":
-                    positions_world = spawn_ambush(room, player_center, len(spawn_specs), rng=rng)
+                    positions_world = spawn_ambush(
+                        room,
+                        player_center,
+                        len(spawn_specs),
+                        rng=rng,
+                        radius_px=b3_amb if b3_amb is not None else AMBUSH_SPAWN_RADIUS_PX,
+                        enemy_type=spawn_move_et,
+                    )
                 elif pattern == "single":
                     if len(spawn_specs) == 1:
                         # Spawn boss at a valid position at least MIN_DISTANCE_FROM_PLAYER_PX from player
                         # so the boss has room to move toward the player (avoids boss stuck at center)
-                        xy = generate_valid_spawn_position(room, player_center, [], is_elite=False, rng=rng)
+                        xy = generate_valid_spawn_position(
+                            room, player_center, [], is_elite=False, rng=rng, enemy_type=spawn_move_et
+                        )
                         positions_world = [xy]
                     else:
                         positions_world = []
-                        for _ in range(len(spawn_specs)):
+                        for i in range(len(spawn_specs)):
                             xy = generate_valid_spawn_position(
-                                room, player_center, positions_world, is_elite=False, rng=rng
+                                room,
+                                player_center,
+                                positions_world,
+                                is_elite=False,
+                                rng=rng,
+                                enemy_type=enemy_type_key_for_class(spawn_specs[i][0]),
                             )
                             positions_world.append(xy)
                 elif pattern == "spread":
@@ -554,23 +865,65 @@ class GameScene(BaseScene):
                         room, player_center, len(spawn_specs),
                         is_elite=(rtype == RoomType.ELITE),
                         rng=rng, door_positions=door_positions,
+                        enemy_type=spawn_move_et,
+                    )
+                b3b_chk = int(getattr(room, "biome_index", 1))
+                if (
+                    b3_spawn_mods
+                    and biome3_director_spawn_eligible(
+                        room_idx=room_idx,
+                        biome_index=b3b_chk,
+                        room_type=rtype,
+                        beginner_test_mode=BEGINNER_TEST_MODE,
+                    )
+                    and positions_world
+                ):
+                    apply_biome3_ranged_position_offsets(
+                        positions_world,
+                        spawn_specs,
+                        player_center,
+                        self.ai_director.ranged_bias_b3,
                     )
             elif room_idx >= 8:  # Biome 2 rooms
                 pattern = get_biome2_spawn_pattern(rtype)
+                amb_r = b2_spawn_mods.get("ambush_radius_px")
+                tri_o = b2_spawn_mods.get("triangle_offset_px")
                 if pattern == "triangle":
-                    positions_world = spawn_triangle(room, player_center, is_elite=True, rng=rng, door_positions=door_positions)
+                    positions_world = spawn_triangle(
+                        room,
+                        player_center,
+                        is_elite=True,
+                        rng=rng,
+                        door_positions=door_positions,
+                        offset_px=tri_o if tri_o is not None else TRIANGLE_OFFSET_PX,
+                        enemy_type=spawn_move_et,
+                    )
                 elif pattern == "ambush":
-                    positions_world = spawn_ambush(room, player_center, len(spawn_specs), rng=rng)
+                    positions_world = spawn_ambush(
+                        room,
+                        player_center,
+                        len(spawn_specs),
+                        rng=rng,
+                        radius_px=amb_r if amb_r is not None else AMBUSH_SPAWN_RADIUS_PX,
+                        enemy_type=spawn_move_et,
+                    )
                 elif pattern == "single":
                     if len(spawn_specs) == 1:
-                        xy = generate_valid_spawn_position(room, player_center, [], is_elite=False, rng=rng)
+                        xy = generate_valid_spawn_position(
+                            room, player_center, [], is_elite=False, rng=rng, enemy_type=spawn_move_et
+                        )
                         positions_world = [xy]
                     else:
                         # Biome 2 mini boss with adds: one position per spawn (mini boss + adds)
                         positions_world = []
-                        for _ in range(len(spawn_specs)):
+                        for i in range(len(spawn_specs)):
                             xy = generate_valid_spawn_position(
-                                room, player_center, positions_world, is_elite=False, rng=rng
+                                room,
+                                player_center,
+                                positions_world,
+                                is_elite=False,
+                                rng=rng,
+                                enemy_type=enemy_type_key_for_class(spawn_specs[i][0]),
                             )
                             positions_world.append(xy)
                 elif pattern == "spread":
@@ -578,23 +931,33 @@ class GameScene(BaseScene):
                         room, player_center, len(spawn_specs),
                         is_elite=(rtype == RoomType.ELITE),
                         rng=rng, door_positions=door_positions,
+                        enemy_type=spawn_move_et,
                     )
             elif not spawn_specs:
                 pass
             elif rtype == RoomType.ELITE:
-                positions_world = spawn_triangle(room, player_center, is_elite=True, rng=rng, door_positions=door_positions)
+                positions_world = spawn_triangle(
+                    room, player_center, is_elite=True, rng=rng, door_positions=door_positions,
+                    enemy_type=spawn_move_et,
+                )
             elif rtype == RoomType.AMBUSH:
-                positions_world = spawn_ambush(room, player_center, len(spawn_specs), rng=rng)
+                positions_world = spawn_ambush(
+                    room, player_center, len(spawn_specs), rng=rng, enemy_type=spawn_move_et
+                )
             elif len(spawn_specs) == 1 and spawn_specs[0][0] == MiniBoss:
                 # Mini boss: single safe position (central, no cluster)
-                xy = generate_valid_spawn_position(room, player_center, [], is_elite=False, rng=rng)
+                xy = generate_valid_spawn_position(
+                    room, player_center, [], is_elite=False, rng=rng, enemy_type=spawn_move_et
+                )
                 positions_world = [xy]
             else:
                 # Combat: spread pattern
                 positions_world = spawn_spread(
-                    room, player_center, len(spawn_specs), is_elite=False, rng=rng, door_positions=door_positions
+                    room, player_center, len(spawn_specs), is_elite=False, rng=rng, door_positions=door_positions,
+                    enemy_type=spawn_move_et,
                 )
 
+            logged_final_spawn_world: list[tuple[float, float]] = []
             for i, (cls, elite_flag, start_time_sec, telegraph_sec) in enumerate(spawn_specs):
                 if i < len(positions_world):
                     wx, wy = positions_world[i]
@@ -611,12 +974,49 @@ class GameScene(BaseScene):
                         telegraph_duration_sec=telegraph_sec,
                         world_pos=(wx, wy),
                     )
+                    logged_final_spawn_world.append((wx, wy))
                 else:
                     # Fallback: tile (0,0) converted by system (should not happen if patterns return enough)
                     self._spawn_system.add_spawn(
                         0, 0, cls, elite_flag, start_time_sec,
                         telegraph_duration_sec=telegraph_sec,
                     )
+                    logged_final_spawn_world.append((-1.0, -1.0))
+
+            if room_idx >= BIOME4_START_INDEX:
+                spawn_pattern_label = f"biome4:{get_biome4_spawn_pattern(rtype)}"
+            elif room_idx >= BIOME3_START_INDEX:
+                spawn_pattern_label = f"biome3:{get_biome3_spawn_pattern(rtype)}"
+            elif room_idx >= 8:
+                spawn_pattern_label = f"biome2:{get_biome2_spawn_pattern(rtype)}"
+            elif not spawn_specs:
+                spawn_pattern_label = "no_specs"
+            elif rtype == RoomType.ELITE:
+                spawn_pattern_label = "biome1_triangle_elite"
+            elif rtype == RoomType.AMBUSH:
+                spawn_pattern_label = "biome1_ambush"
+            elif len(spawn_specs) == 1 and spawn_specs[0][0] == MiniBoss:
+                spawn_pattern_label = "biome1_miniboss_single"
+            else:
+                spawn_pattern_label = "biome1_spread_combat"
+
+            spawn_specs_summary = [
+                f"{spec[0].__name__}, elite={spec[1]}, start={spec[2]}, tele={spec[3]}"
+                for spec in spawn_specs
+            ]
+            log_spawn_setup(
+                procedural_seed=active_seed,
+                room_index=room_idx,
+                room_type_name=rtype.value,
+                biome_index=int(getattr(room, "biome_index", 1)),
+                spawn_legacy_seed=active_seed + room.room_index * 10000,
+                spawn_specs_summary=spawn_specs_summary,
+                positions_world=logged_final_spawn_world,
+                spawn_pattern_label=spawn_pattern_label,
+                room=room,
+                player_center_world=player_center,
+                spawn_specs=spawn_specs,
+            )
         else:
             self._spawn_system = SpawnSystem(self._vfx)
             px, py = self._player.world_pos
@@ -687,10 +1087,10 @@ class GameScene(BaseScene):
         if room is None:
             return True
         r = rect.inflate(2 * padding_px, 2 * padding_px)
-        min_tx = int(r.left // TILE_SIZE)
-        max_tx = int((r.right - 1) // TILE_SIZE)
-        min_ty = int(r.top // TILE_SIZE)
-        max_ty = int((r.bottom - 1) // TILE_SIZE)
+        cx, cy = float(r.centerx), float(r.centery)
+        min_tx, max_tx, min_ty, max_ty = tile_range_for_centered_aabb(
+            cx, cy, float(r.width), float(r.height)
+        )
         for ty in range(min_ty, max_ty + 1):
             for tx in range(min_tx, max_tx + 1):
                 if self._tile_blocks_movement(room, tx, ty):
@@ -733,16 +1133,16 @@ class GameScene(BaseScene):
         if getattr(entity, "inactive", False):
             return
         block_check = self._tile_blocks_movement
-        if hasattr(entity, "get_hitbox_rect"):
+        cx, cy = float(entity.world_pos[0]), float(entity.world_pos[1])
+        if hasattr(entity, "get_movement_hitbox_rect"):
+            r = entity.get_movement_hitbox_rect()
+            fw, fh = float(r.width), float(r.height)
+        elif hasattr(entity, "get_hitbox_rect"):
             r = entity.get_hitbox_rect()
+            fw, fh = float(r.width), float(r.height)
         else:
-            ex, ey = entity.world_pos
-            r = pygame.Rect(ex - 16, ey - 16, 32, 32)
-        # Determine overlapped tile range
-        min_tx = int(r.left // TILE_SIZE)
-        max_tx = int((r.right - 1) // TILE_SIZE)
-        min_ty = int(r.top // TILE_SIZE)
-        max_ty = int((r.bottom - 1) // TILE_SIZE)
+            fw, fh = 32.0, 32.0
+        min_tx, max_tx, min_ty, max_ty = tile_range_for_centered_aabb(cx, cy, fw, fh)
         for ty in range(min_ty, max_ty + 1):
             for tx in range(min_tx, max_tx + 1):
                 if block_check(room, tx, ty):
@@ -757,16 +1157,9 @@ class GameScene(BaseScene):
                         nudge = 6.0
                         nx = prev_pos[0] + perp_x * nudge
                         ny = prev_pos[1] + perp_y * nudge
-                        if hasattr(entity, "get_hitbox_rect"):
-                            r = entity.get_hitbox_rect()
-                            r2 = pygame.Rect(0, 0, r.width, r.height)
-                            r2.center = (nx, ny)
-                        else:
-                            r2 = pygame.Rect(nx - 16, ny - 16, 32, 32)
-                        min_tx2 = int(r2.left // TILE_SIZE)
-                        max_tx2 = int((r2.right - 1) // TILE_SIZE)
-                        min_ty2 = int(r2.top // TILE_SIZE)
-                        max_ty2 = int((r2.bottom - 1) // TILE_SIZE)
+                        min_tx2, max_tx2, min_ty2, max_ty2 = tile_range_for_centered_aabb(
+                            nx, ny, fw, fh
+                        )
                         blocked = False
                         for ty2 in range(min_ty2, max_ty2 + 1):
                             for tx2 in range(min_tx2, max_tx2 + 1):
@@ -797,11 +1190,44 @@ class GameScene(BaseScene):
         self._ensure_player()
         if self._player is None:
             return
+        self._metrics.update(dt)
+        if (
+            USE_PHASE7_DUNGEON
+            and self._room_controller is not None
+            and self._metrics_pending_room_start
+        ):
+            room_m = self._room_controller.current_room
+            if room_m is not None:
+                self._metrics.start_room(
+                    self._room_controller.current_room_index,
+                    int(room_m.biome_index),
+                    self._player_hp_percent(),
+                )
+            self._metrics_pending_room_start = False
         room = self._room_controller.current_room if self._room_controller else None
+        if self._room_controller is not None and room is not None:
+            self.ai_director.update_room_context(
+                int(self._room_controller.current_room_index),
+                int(getattr(room, "biome_index", 1)),
+            )
+        else:
+            self.ai_director.update_room_context(None, None)
         if room is not None and self._room_controller is not None:
             # Playable area only (inside wall band); walls/doors block via collision.
-            min_x, min_y, max_x, max_y = room.playable_bounds_pixels()
+            min_x, min_y, max_x, max_y = room.playable_bounds_for_half_extents(
+                PLAYER_MOVEMENT_HITBOX_W * 0.5, PLAYER_MOVEMENT_HITBOX_H * 0.5
+            )
             self._player.room_bounds = (min_x, min_y, max_x, max_y)
+            if DEBUG_MOVEMENT_HITBOX:
+                rid = self._room_controller.current_room_index
+                if getattr(self, "_debug_player_mov_hb_room", None) != rid:
+                    self._debug_player_mov_hb_room = rid
+                    px, py = self._player.world_pos
+                    ptx, pty = room.tile_at_world(px, py)
+                    print(
+                        f"[PLAYER MOVEMENT HB] wh=({PLAYER_MOVEMENT_HITBOX_W},{PLAYER_MOVEMENT_HITBOX_H}) "
+                        f"room_min_y={min_y:.2f} pos_y={py:.2f} tile_row={pty} tile_col={ptx}"
+                    )
             tx, ty = self._room_controller.hazard_system.tile_at_world(
                 self._player.world_pos[0], self._player.world_pos[1]
             )
@@ -821,7 +1247,7 @@ class GameScene(BaseScene):
             self._vfx.set_biome4_spawn_visuals(False)
         self._ensure_spawn_system()
         if self._spawn_system is not None:
-            self._spawn_system.update(dt, self._player, self._enemies)
+            self._spawn_system.update(dt, self._player, self._enemies, room=room)
 
         if self._room_controller is not None:
             self._room_controller.update(dt)
@@ -875,16 +1301,73 @@ class GameScene(BaseScene):
         # Wall collision: revert if player moved into a wall/closed door tile.
         if room is not None:
             self._resolve_entity_wall_collision(self._player, prev_player_pos, room)
+            if DEBUG_TOP_EDGE:
+                b = room.wall_border()
+                px, py = self._player.world_pos
+                ptx, pty = room.tile_at_world(px, py)
+                if pty < b + 6:
+                    phw, phh = PLAYER_MOVEMENT_HITBOX_W * 0.5, PLAYER_MOVEMENT_HITBOX_H * 0.5
+                    pmn_x, pmn_y, pmx_x, pmx_y = room.playable_bounds_for_half_extents(phw, phh)
+                    # Top-only gameplay padding: none (HUD uses screen-space draw only).
+                    print(
+                        f"[TOP BOUNDS] wall_border_tiles={b} player_min_y={pmn_y:.2f} player_max_y={pmx_y:.2f} "
+                        f"movement_wh=({PLAYER_MOVEMENT_HITBOX_W},{PLAYER_MOVEMENT_HITBOX_H}) "
+                        f"hud_top_padding_px=0"
+                    )
+                    _sample = next(
+                        (e for e in self._enemies if not getattr(e, "inactive", False)),
+                        None,
+                    )
+                    if _sample is not None:
+                        ehw, ehh = enemy_movement_half_extents_for_class(type(_sample))
+                        emn_x, emn_y, emx_x, emx_y = room.playable_bounds_for_half_extents(ehw, ehh)
+                        print(
+                            f"[TOP BOUNDS] sample_enemy={type(_sample).__name__} enemy_min_y={emn_y:.2f} "
+                            f"enemy_max_y={emx_y:.2f}"
+                        )
+                    vy = self._player.velocity_xy[1] if self._player.velocity_xy else 0.0
+                    print(
+                        f"[TOP TILE CHECK] world_y={py:.2f} tile_y={pty} tile_x={ptx} "
+                        f"in_wall_band={room.is_tile_in_wall_band(ptx, pty)} vy={vy:.1f}"
+                    )
+                    print(
+                        f"[TOP EDGE CHECK] player world=({px:.2f},{py:.2f}) tile=({ptx},{pty}) "
+                        f"in_wall_band={room.is_tile_in_wall_band(ptx, pty)} wall_border_b={b}"
+                    )
+                    print(
+                        f"[PLAYABLE BOUNDS] min_y={pmn_y:.2f} max_y={pmx_y:.2f} "
+                        f"min_x={pmn_x:.2f} max_x={pmx_x:.2f}"
+                    )
+                    print(f"[PLAYER CLAMP] room_bounds_y=[{pmn_y:.2f},{pmx_y:.2f}] (applied in apply_player_movement)")
+                    print("[TOP OFFSET FOUND] source=none (no extra top-only clamp beyond wall_band+half_extents)")
         if getattr(self._player, "_consumed_dash_request", False):
             self._dash_request = False
         self._attack_short_request = False
         self._attack_long_request = False
         self._parry_request = False
+        self._metrics.player_idle = len(keys) == 0
+        px0, py0 = self._player.world_pos
+        _near_e = False
+        for _e in self._enemies:
+            if getattr(_e, "inactive", False):
+                continue
+            _ex, _ey = getattr(_e, "world_pos", (0.0, 0.0))
+            if math.hypot(px0 - _ex, py0 - _ey) < 280.0:
+                _near_e = True
+                break
+        self._metrics.near_enemy = _near_e
 
         # Build list of all hostiles (enemies + mini boss when present)
         all_hostiles = list(self._enemies)
         # Resolve player attacks first (enemy attacks resolved after enemy update so e.g. mini_boss_3 is in attack_01/attack_02).
         player_events = apply_player_attacks(self._player, all_hostiles)
+        for _pe in player_events:
+            if not _pe.is_player:
+                self._metrics.record_damage_dealt(_pe.amount)
+                _tgt = _pe.target
+                if not getattr(_tgt, "is_training_dummy", False) and getattr(_tgt, "hp", 0) <= 0:
+                    _et = getattr(_tgt, "enemy_type", type(_tgt).__name__)
+                    self._metrics.record_kill(str(_et))
         if player_events:
             self._debug_player_hit_time = pygame.time.get_ticks() / 1000.0
         # Room 0: training dummy HP resets after each hit (Requirements §9.5.3)
@@ -893,12 +1376,9 @@ class GameScene(BaseScene):
                 if getattr(e, "is_training_dummy", False):
                     e.hp = getattr(e, "max_hp", 9999.0)
 
-        # Update enemies after player (Phase 3); use playable area when in Phase 7
-        if room is not None:
-            min_x, min_y, max_x, max_y = room.playable_bounds_pixels()
-            room_rect = pygame.Rect(min_x, min_y, max_x - min_x, max_y - min_y)
-        else:
-            room_rect = pygame.Rect(ENEMY_MIN_X, ENEMY_MIN_Y, ENEMY_MAX_X - ENEMY_MIN_X, ENEMY_MAX_Y - ENEMY_MIN_Y)
+        # Update enemies after player (Phase 3); clamp each enemy using its own hitbox half-extents
+        # (sprite size). Shared player-sized bounds made tall enemies overlap the top wall row.
+        fallback_rect = pygame.Rect(ENEMY_MIN_X, ENEMY_MIN_Y, ENEMY_MAX_X - ENEMY_MIN_X, ENEMY_MAX_Y - ENEMY_MIN_Y)
         self._room_time += dt
         # Phase 3: Final Boss spawn at 2.0s in Room 29 (with spawn portal/explosion VFX)
         if room is not None and room.room_type == RoomType.FINAL_BOSS and self._final_boss_spawn_timer is not None:
@@ -908,7 +1388,9 @@ class GameScene(BaseScene):
                 self._final_boss_spawned = True
                 cx, cy = room.width // 2, room.height // 2
                 wx, wy = room.world_pos_for_tile(cx, cy)
-                self._enemies.append(FinalBoss((wx, wy), room_index=self._room_controller.current_room_index))
+                self._enemies.append(
+                    FinalBoss((wx, wy), room_index=self._room_controller.current_room_index, **self._final_boss_director_kwargs())
+                )
                 self._boss_spawn_fx_timer = 1.2
                 self._boss_spawn_fx_pos = (float(wx), float(wy))
                 self._boss_revive_message_until = 0.0
@@ -917,6 +1399,14 @@ class GameScene(BaseScene):
             if getattr(enemy, "inactive", False):
                 continue
             prev_enemy_pos = enemy.world_pos
+            if room is not None:
+                mw, mh = getattr(enemy, "movement_size", getattr(enemy, "size", (32, 32)))
+                emin_x, emin_y, emax_x, emax_y = room.playable_bounds_for_half_extents(
+                    mw * 0.5, mh * 0.5
+                )
+                room_rect = pygame.Rect(emin_x, emin_y, emax_x - emin_x, emax_y - emin_y)
+            else:
+                room_rect = fallback_rect
             if isinstance(enemy, FinalBoss):
                 block_check = (lambda r, tx, ty: self._tile_blocks_movement(r, tx, ty)) if room is not None else None
                 enemy.update(dt, self._player, room_rect, room, block_check=block_check)
@@ -964,7 +1454,13 @@ class GameScene(BaseScene):
                     wx = bx + radius * math.cos(angle)
                     wy = by + radius * math.sin(angle)
                     if room is not None:
-                        wx, wy = ensure_valid_spawn_position(room, wx, wy, existing_positions=add_positions)
+                        wx, wy = ensure_valid_spawn_position(
+                            room,
+                            wx,
+                            wy,
+                            existing_positions=add_positions,
+                            enemy_type=enemy_type_key_for_class(add_cls),
+                        )
                     add_positions.append((wx, wy))
                     add_enemy = add_cls((wx, wy), elite=elite)
                     self._enemies.append(add_enemy)
@@ -1003,6 +1499,9 @@ class GameScene(BaseScene):
                     f"enemy0={getattr(e0, 'enemy_type', type(e0).__name__)} hp={float(getattr(e0, 'hp', 0.0)):.1f}/{float(getattr(e0, 'max_hp', 0.0)):.1f}"
                 )
         self._spawn_vfx_for_damage(player_events + enemy_events)
+        for _ee in enemy_events:
+            if _ee.is_player:
+                self._metrics.record_damage_taken(_ee.amount, _ee.source or "enemy_melee")
         # Phase 3: Final Boss contact damage (every 0.5s when player overlaps boss)
         if self._player is not None and room is not None:
             player_rect = self._player.get_hitbox_rect()
@@ -1018,6 +1517,7 @@ class GameScene(BaseScene):
                             self._final_boss_contact_timer = 0.5
                             contact_dmg = FINAL_BOSS_CONTACT_DAMAGE_REVIVE if getattr(e, "_revived", False) else FINAL_BOSS_CONTACT_DAMAGE
                             self._player.hp = max(0, self._player.hp - contact_dmg)
+                            self._metrics.record_damage_taken(float(contact_dmg), "final_boss_contact")
                             if hasattr(self._player, "damage_flash_timer"):
                                 self._player.damage_flash_timer = 0.15
                     else:
@@ -1032,6 +1532,7 @@ class GameScene(BaseScene):
                     dy = py - imp["y"]
                     if math.hypot(dx, dy) <= imp["radius"]:
                         self._player.hp = max(0, self._player.hp - imp["damage"])
+                        self._metrics.record_damage_taken(float(imp["damage"]), "meteor")
                         if hasattr(self._player, "damage_flash_timer"):
                             self._player.damage_flash_timer = 0.15
                 self._meteor_impact_display.append({"x": imp["x"], "y": imp["y"], "until": self._room_time + 0.4})
@@ -1048,6 +1549,7 @@ class GameScene(BaseScene):
         if self._player.hp <= 0 and self._death_phase is None:
             self._death_phase = "anim"
             self._death_timer = 0.0
+            self._metrics.record_death()
             for enemy in self._enemies:
                 if hasattr(enemy, "on_player_death_start"):
                     enemy.on_player_death_start(self._player)
@@ -1064,6 +1566,9 @@ class GameScene(BaseScene):
         proj_events = apply_projectile_hits(self._player, self._projectiles)
         if proj_events:
             self._spawn_vfx_for_damage(proj_events)
+        for _pev in proj_events:
+            if _pev.is_player:
+                self._metrics.record_damage_taken(_pev.amount, _pev.source or "enemy_projectile")
         self._projectiles = [p for p in self._projectiles if not getattr(p, "inactive", True)]
 
         # Phase 7: room clear -> start door open timer (once per room); 25% heal drop (seeded)
@@ -1076,10 +1581,51 @@ class GameScene(BaseScene):
                 if spawns_done and len(self._enemies) == 0:
                     self._room_controller.on_room_clear()
                     self._room_cleared_flag = True
+                    self._metrics.end_room(self._player_hp_percent())
+                    self._update_player_model_after_room_end()
                     if not self._heal_drop_rolled_this_room:
                         self._heal_drop_rolled_this_room = True
                         rng = random.Random(SEED + self._room_controller.current_room_index * 100)
-                        if rng.random() < HEAL_DROP_CHANCE and room is not None and room.room_type not in (RoomType.START, RoomType.SAFE):
+                        heal_p = HEAL_DROP_CHANCE
+                        ri = self._room_controller.current_room_index
+                        psn = self.player_state.name if self.player_state is not None else None
+                        if (
+                            room is not None
+                            and int(getattr(room, "biome_index", 1)) == 1
+                            and ri < 8
+                            and not BEGINNER_TEST_MODE
+                            and room.room_type
+                            in (RoomType.COMBAT, RoomType.AMBUSH, RoomType.ELITE)
+                        ):
+                            heal_p = biome1_effective_heal_drop_chance(HEAL_DROP_CHANCE, psn)
+                        elif (
+                            room is not None
+                            and int(getattr(room, "biome_index", 1)) == 2
+                            and BIOME3_START_INDEX > ri >= 8
+                            and not BEGINNER_TEST_MODE
+                            and room.room_type
+                            in (RoomType.COMBAT, RoomType.AMBUSH, RoomType.ELITE)
+                        ):
+                            heal_p = biome2_effective_heal_drop_chance(HEAL_DROP_CHANCE, psn)
+                        elif (
+                            room is not None
+                            and int(getattr(room, "biome_index", 1)) == 3
+                            and BIOME4_START_INDEX > ri >= BIOME3_START_INDEX
+                            and not BEGINNER_TEST_MODE
+                            and room.room_type
+                            in (RoomType.COMBAT, RoomType.AMBUSH, RoomType.ELITE)
+                        ):
+                            heal_p = biome3_effective_heal_drop_chance(HEAL_DROP_CHANCE, psn)
+                        elif (
+                            room is not None
+                            and int(getattr(room, "biome_index", 1)) == 4
+                            and 29 > ri >= BIOME4_START_INDEX
+                            and not BEGINNER_TEST_MODE
+                            and room.room_type
+                            in (RoomType.COMBAT, RoomType.AMBUSH, RoomType.ELITE)
+                        ):
+                            heal_p = biome4_effective_heal_drop_chance(HEAL_DROP_CHANCE, psn)
+                        if rng.random() < heal_p and room is not None and room.room_type not in (RoomType.START, RoomType.SAFE):
                             cx, cy = room.width // 2, room.height // 2
                             wx, wy = room.world_pos_for_tile(cx, cy)
                             self._rewards.append({"pos": (wx, wy), "collected": False})
@@ -1111,10 +1657,12 @@ class GameScene(BaseScene):
             hz = self._room_controller.hazard_system
             px, py = self._player.world_pos
             tx, ty = hz.tile_at_world(px, py)
+            self._metrics.in_hazard = hz.is_lava_tile(tx, ty) or hz.is_slow_tile(tx, ty)
             if hz.is_lava_tile(tx, ty) and not getattr(self._player, "dash_active", False):
                 dmg = LAVA_DAMAGE_PER_SECOND * dt
                 if dmg > 0:
                     self._player.hp = max(0, self._player.hp - dmg)
+                    self._metrics.record_damage_taken(float(dmg), "hazard_lava")
                     if hasattr(self._player, "damage_flash_timer"):
                         self._player.damage_flash_timer = 0.15
             # Lava damages enemies too (shared hazard system); Heavy and others take lava damage.
@@ -1131,6 +1679,9 @@ class GameScene(BaseScene):
                             enemy.damage_flash_timer = 0.15
                         if enemy.hp <= 0 and hasattr(enemy, "_set_state"):
                             enemy._set_state("death")
+                            if not getattr(enemy, "is_training_dummy", False):
+                                _ket = getattr(enemy, "enemy_type", type(enemy).__name__)
+                                self._metrics.record_kill(str(_ket))
 
         # Phase 6: on mini boss death spawn reward and start door-unlock delay
         if self._mini_boss_death_pos is not None:
@@ -1147,6 +1698,8 @@ class GameScene(BaseScene):
                 if room is not None and room.room_type == RoomType.FINAL_BOSS and not self._room_cleared_flag:
                     self._room_controller.on_room_clear()
                     self._room_cleared_flag = True
+                    self._metrics.end_room(self._player_hp_percent())
+                    self._update_player_model_after_room_end()
 
         # Phase 7: door transition (rooms 0–7) — player rect overlapping open doorway trigger loads next room
         if (
@@ -1185,7 +1738,10 @@ class GameScene(BaseScene):
                     self._victory_timer = 0.0
                     return
                 if next_idx < total:
+                    self._metrics.end_room(self._player_hp_percent())
+                    self._update_player_model_after_room_end()
                     self._room_controller.load_room(next_idx)
+                    self._metrics_pending_room_start = True
                     room = self._room_controller.current_room
                     wx, wy = room.world_pos_for_tile(room.spawn_tile[0], room.spawn_tile[1])
                     self._player.world_pos = (wx, wy)
@@ -1240,7 +1796,9 @@ class GameScene(BaseScene):
                     r["collected"] = True
                     base_max_hp = getattr(self._player, "base_max_hp", 100.0)
                     heal_pct = FINAL_BOSS_REWARD_HEAL_PERCENT if (room is not None and room.room_type == RoomType.FINAL_BOSS) else MINI_BOSS_REWARD_HEAL_PERCENT
+                    _hp_before = float(self._player.hp)
                     self._player.hp = min(base_max_hp, self._player.hp + base_max_hp * heal_pct)
+                    self._metrics.record_healing(max(0.0, float(self._player.hp) - _hp_before))
 
         self._enforce_enemy_separation()
         self._enforce_player_enemy_separation()
@@ -1305,8 +1863,20 @@ class GameScene(BaseScene):
                 self._vfx.spawn_hit_spark(pos)
                 self._vfx.spawn_damage_number(ev.amount, pos, is_player=True)
 
+    def _clamp_enemy_world_to_room(self, room, enemy, x: float, y: float) -> tuple[float, float]:
+        """Clamp enemy center using that enemy's movement half extents (same as AI clamp / wall body)."""
+        if room is None:
+            return (
+                max(ENEMY_MIN_X, min(ENEMY_MAX_X, x)),
+                max(ENEMY_MIN_Y, min(ENEMY_MAX_Y, y)),
+            )
+        hw, hh = enemy_movement_half_extents_for_class(type(enemy))
+        min_x, min_y, max_x, max_y = room.playable_bounds_for_half_extents(hw, hh)
+        return (max(min_x, min(max_x, x)), max(min_y, min(max_y, y)))
+
     def _enforce_enemy_separation(self) -> None:
         """Apply enemy–enemy separation rules so they never visually stack."""
+        room = self._room_controller.current_room if self._room_controller else None
         n = len(self._enemies)
         for i in range(n):
             a = self._enemies[i]
@@ -1344,10 +1914,8 @@ class GameScene(BaseScene):
                 ay_new = ay - ny * overlap * fa
                 bx_new = bx + nx * overlap * fb
                 by_new = by + ny * overlap * fb
-                ax_new = max(ENEMY_MIN_X, min(ENEMY_MAX_X, ax_new))
-                ay_new = max(ENEMY_MIN_Y, min(ENEMY_MAX_Y, ay_new))
-                bx_new = max(ENEMY_MIN_X, min(ENEMY_MAX_X, bx_new))
-                by_new = max(ENEMY_MIN_Y, min(ENEMY_MAX_Y, by_new))
+                ax_new, ay_new = self._clamp_enemy_world_to_room(room, a, ax_new, ay_new)
+                bx_new, by_new = self._clamp_enemy_world_to_room(room, b, bx_new, by_new)
                 a.world_pos = (ax_new, ay_new)
                 b.world_pos = (bx_new, by_new)
 
@@ -1370,11 +1938,6 @@ class GameScene(BaseScene):
         if self._player is None:
             return
         room = self._room_controller.current_room if self._room_controller else None
-        if room is not None:
-            min_x, min_y, max_x, max_y = room.playable_bounds_pixels()
-        else:
-            min_x, min_y = ENEMY_MIN_X, ENEMY_MIN_Y
-            max_x, max_y = ENEMY_MAX_X, ENEMY_MAX_Y
         px, py = self._player.world_pos
         for a in self._enemies:
             if getattr(a, "inactive", False) or getattr(a, "is_training_dummy", False):
@@ -1392,8 +1955,7 @@ class GameScene(BaseScene):
                 ny = dy / dist
                 ax_new = px + nx * stop_dist
                 ay_new = py + ny * stop_dist
-                ax_new = max(min_x, min(max_x, ax_new))
-                ay_new = max(min_y, min(max_y, ay_new))
+                ax_new, ay_new = self._clamp_enemy_world_to_room(room, a, ax_new, ay_new)
                 a.world_pos = (ax_new, ay_new)
 
     def _ensure_mini_boss_bar_loaded(self) -> None:
@@ -2553,7 +3115,13 @@ class GameScene(BaseScene):
                 tw, th = text.get_size()
                 screen.blit(text, (LOGICAL_W // 2 - tw // 2, LOGICAL_H // 2 - th // 2))
 
+        # AI debug overlay (after all gameplay/UI overlays; read-only)
+        self._debug_overlay.draw(screen)
+
     def handle_event(self, event: pygame.event.Event) -> bool:
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_F3:
+            self._debug_overlay.toggle()
+            return True
         # Room 0 story panel: E or ESC closes (Requirements §9.4.2)
         if self._room0_story_panel_open and event.type == pygame.KEYDOWN:
             if event.key in (pygame.K_e, pygame.K_ESCAPE):
@@ -2575,8 +3143,20 @@ class GameScene(BaseScene):
                     and self._safe_room_heal_pos is not None
                 ):
                     base_max_hp = getattr(self._player, "base_max_hp", 100.0)
-                    heal_amount = base_max_hp * SAFE_ROOM_HEAL_PERCENT
+                    _cr = self._room_controller.current_room
+                    _psnh = self.player_state.name if self.player_state is not None else None
+                    _bidx_safe = int(getattr(_cr, "biome_index", 1)) if _cr is not None else 1
+                    if _bidx_safe == 2:
+                        _srm = biome2_safe_room_heal_multiplier(_psnh)
+                    elif _bidx_safe == 3:
+                        _srm = biome3_safe_room_heal_multiplier(_psnh)
+                    elif _bidx_safe == 4:
+                        _srm = biome4_safe_room_heal_multiplier(_psnh)
+                    else:
+                        _srm = 1.0
+                    heal_amount = base_max_hp * SAFE_ROOM_HEAL_PERCENT * _srm
                     self._player.hp += heal_amount
+                    self._metrics.record_healing(float(heal_amount))
                     self._safe_room_heal_done = True
                     self._safe_room_upgrade_pending = True
                     if self._room_controller.current_room_index == BIOME4_SAFE_ROOM_INDEX:
