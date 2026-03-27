@@ -111,7 +111,7 @@ Each game session consists of:
 
 The core design principle:
 
-- The **Seed** controls structural variation.
+- The **Seed** controls bounded encounter variation, while room dimensions, milestone positions, and biome structure remain fixed.
 - The **AI Director** controls pacing and difficulty.
 - **Reinforcement Learning** tunes parameters offline only.
 - Runtime gameplay remains deterministic.
@@ -161,7 +161,7 @@ Dependencies include:
 
 **Procedural Generation** – Algorithmic generation of dungeon layouts using predefined rules and a seed.
 
-**Seed** – A deterministic value used to generate dungeon structure and layout variation.
+**Seed** – A deterministic value used to generate bounded encounter variation, including flexible room-type selection and enemy spawn pattern selection.
 
 **Roguelike** – A game structure featuring permadeath and run-based resets.
 
@@ -458,17 +458,546 @@ Supported room types:
 
 The seed shall control:
 
-- Layout templates
-- Hazard placement
-- Enemy spawn patterns
-- Visual themes
-- Flexible encounter slots
+Flexible encounter slots
 
-- R4.1.8 The seed shall not modify total room count.
-- R4.1.9 The seed shall not modify milestone positions.
-- R4.1.10 The seed shall not override hazard caps.
+Enemy spawn patterns
+
+Deterministic encounter composition variation within predefined biome bounds
+
+The seed shall not control:
+Total room count
+Milestone positions
+Room sizes
+Core room geometry
+Hazard caps
+Boss room structure
+
+“The seed shall not modify total room count.”
+
+“The seed shall not modify milestone positions.”
+
+“The seed shall not override hazard caps.”
+
+## 4.1.4 Seed-Controlled Room Distribution Constraints
+### Overview
+To ensure deterministic yet controlled procedural generation, the random seed SHALL only influence:
+1. Room type assignment (within predefined bounds)
+2. Enemy spawn patterns and compositions
+
+The seed SHALL NOT influence:
+- Room size
+- Room grid dimensions
+- Core room layout structure
+
+All rooms must follow fixed structural rules, while allowing limited variation through seed-controlled selection.
+
+---
+
+### Fixed Global Constraints
+
+The following rules apply across all biomes:
+
+- Total number of rooms per biome is FIXED
+- First room MUST always be:
+  - `START`
+- Last room MUST always be:
+  - `MINI_BOSS` (Biome 1–3)
+  - `FINAL_BOSS` (Biome 4)
+- Each biome MUST contain exactly:
+  - **1 SAFE room**
+- Safe room CANNOT:
+  - Appear as first room
+  - Appear as last room
+- Boss rooms are FIXED and NOT controlled by seed
+
+---
+
+### Room Type Distribution (Per Biome)
+
+The seed SHALL select room types ONLY within the following predefined distributions.
+
+---
+
+#### Biome 1 (8 Rooms)
+
+| Room Type   | Count | Fixed / Seed Controlled |
+|------------|------|--------------------------|
+| START      | 1    | Fixed (Room 0)           |
+| MINI_BOSS  | 1    | Fixed (Last Room)        |
+| SAFE       | 1    | Seed-controlled position |
+| ELITE      | 1    | Seed-controlled          |
+| AMBUSH     | 1    | Seed-controlled          |
+| COMBAT     | 3    | Seed-controlled          |
+
+👉 Seed behavior:
+- Rooms 1–6 are shuffled deterministically using seed
+- Distribution MUST remain constant
+
+---
+
+#### Biome 2
+
+| Room Type   | Count |
+|------------|------|
+| START      | 1    |
+| MINI_BOSS  | 1    |
+| SAFE       | 1    |
+| ELITE      | 1–2  |
+| AMBUSH     | 1–2  |
+| COMBAT     | Remaining |
+
+👉 Safe room is exactly 1 and cannot move outside valid positions
+
+---
+
+#### Biome 3
+
+| Room Type   | Count |
+|------------|------|
+| START      | 1    |
+| MINI_BOSS  | 1    |
+| SAFE       | 1    |
+| ELITE      | 2    |
+| AMBUSH     | 2    |
+| COMBAT     | Remaining |
+
+---
+
+#### Biome 4 (Final Biome)
+
+| Room Type   | Count |
+|------------|------|
+| START      | 1    |
+| SAFE       | 1    |
+| ELITE      | 2–3  |
+| AMBUSH     | 2–3  |
+| COMBAT     | Remaining |
+| FINAL_BOSS | 1 (Fixed Last Room) |
+
+---
+
+### Safe Room Placement Rules
+
+- Each biome MUST contain exactly one SAFE room
+- Safe room MUST:
+  - Appear only in mid-biome
+  - Not be first or last room
+- Recommended placement range:
+  - Between 30%–60% of total rooms
+
+Example:
+- Biome 1 (8 rooms): Room 3 or 4
+
+---
+
+### Seed Responsibilities
+
+The seed SHALL control:
+
+1. Room ordering (within fixed distribution)
+2. Enemy spawn composition (types and counts)
+3. Enemy spawn positions
+4. Hazard placement (lava, slow tiles)
+
+---
+
+### Non-Seed Responsibilities
+
+The following MUST remain deterministic:
+
+- Room size (grid dimensions)
+- Room layout structure
+- Door positions
+- Boss room placement
+- Safe room mechanics (healing, upgrades)
+
+---
+
+### Rationale
+
+This design ensures:
+
+- Deterministic replayability (same seed → same run)
+- Controlled difficulty progression
+- Prevention of invalid layouts
+- Reduced procedural complexity
+
+---
+
+### Implementation Example (Biome 1)
+
+Seed input:
+SEED = 42
+
+Fixed structure:
+[START, ?, ?, ?, ?, ?, ?, MINI_BOSS]
+
+Seed-controlled shuffle (within bounds):
+[COMBAT, SAFE, COMBAT, ELITE, AMBUSH, COMBAT]
+
+Final layout:
+START → COMBAT → SAFE → COMBAT → ELITE → AMBUSH → COMBAT → MINI_BOSS
+
+## 4.1.5 Seed-Controlled Room Distribution Constraints
+#### Overview
+
+Enemy spawning SHALL be constrained by both:
+
+1. **Biome**
+2. **Room type**
+
+The seed MAY vary encounter composition and spawn realization only within predefined biome-specific limits.
+
+The seed SHALL NOT:
+- introduce unsupported enemy archetypes into a biome-room combination
+- exceed biome-room enemy count limits
+- alter boss phase logic
+- alter fixed boss identity
+- bypass fairness and spawn-safety constraints
+
+This section defines the **allowed bounds** for seed-controlled enemy spawning.  
+Current implementation profiles are valid examples within these bounds, but seed-controlled variation may choose lower or higher values as long as the defined limits are respected.
+
+---
+
+#### Global Spawn Rules
+
+The following rules apply across all biomes:
+
+- SAFE rooms SHALL contain **0 enemies**
+- START rooms SHALL contain **0 hostile enemies**
+- MINI_BOSS rooms SHALL contain exactly **1 mini boss** as the primary encounter
+- FINAL_BOSS room SHALL contain exactly **1 final boss** as the primary encounter
+- Non-boss encounter variation SHALL be controlled only within the biome-specific limits below
+- Spawn timing, spawn positions, and allowed composition MAY vary by seed, but only within the limits defined here
+
+---
+
+#### Global Spawn Safety Constraints
+
+All enemy spawns SHALL satisfy the following:
+
+- Enemy spawn points must be inside the playable room area
+- Enemy spawn points must not overlap blocked wall regions
+- Enemy spawn points must maintain required separation from player spawn
+- Enemy spawn points must maintain required separation from each other
+- Spawn realization must remain deterministic for the same seed and room index
+
+---
+
+### Biome 1 Spawn Constraints
+
+Supported non-boss enemy archetypes in Biome 1:
+- Swarm
+- Flanker
+- Brute
+
+Biome 1 seed-controlled encounter bounds:
+
+| Room Type  | Allowed Enemy Count | Allowed Enemy Types | Elite Allowed | Allowed Spawn Patterns |
+|-----------|---------------------|---------------------|---------------|------------------------|
+| COMBAT    | 1–3                 | Swarm, Flanker, Brute | No          | Spread                 |
+| AMBUSH    | 2–3                 | Swarm, Flanker, Brute | No          | Ambush                 |
+| ELITE     | 2–3                 | Swarm, Flanker, Brute | Yes         | Triangle               |
+| SAFE      | 0                   | None                | No            | None                   |
+| MINI_BOSS | 1 primary boss      | MiniBoss only       | No            | Single                 |
+
+Biome 1 notes:
+- Seed MAY vary the exact combat composition within the allowed archetypes
+- Seed MAY vary encounter size within the allowed range
+- Seed SHALL NOT introduce Heavy or Ranged enemies in Biome 1 standard encounters
+
+---
+
+### Biome 2 Spawn Constraints
+
+Supported non-boss enemy archetypes in Biome 2:
+- Swarm
+- Flanker
+- Brute
+- Heavy
+
+Biome 2 seed-controlled encounter bounds:
+
+| Room Type  | Allowed Enemy Count | Allowed Enemy Types | Elite Allowed | Allowed Spawn Patterns |
+|-----------|---------------------|---------------------|---------------|------------------------|
+| COMBAT    | 3–4                 | Swarm, Flanker, Brute, Heavy | No   | Spread                 |
+| AMBUSH    | 2–3                 | Swarm, Flanker, Brute, Heavy | No   | Ambush                 |
+| ELITE     | 2–3                 | Swarm, Brute, Heavy          | Yes  | Triangle               |
+| SAFE      | 0                   | None                         | No   | None                   |
+| MINI_BOSS | 1 primary boss + 0–4 scheduled adds | MiniBoss2 primary; Swarm, Flanker, Brute, Heavy adds | No | Single for boss; scheduled add spawns |
+
+Biome 2 notes:
+- Heavy becomes available beginning in Biome 2
+- Seed MAY vary combat count between 3 and 4
+- Seed MAY vary ambush count between 2 and 3
+- Mini boss add schedule may be present only if explicitly supported by implementation rules
+
+---
+
+### Biome 3 Spawn Constraints
+
+Supported non-boss enemy archetypes in Biome 3:
+- Swarm
+- Flanker
+- Brute
+- Heavy
+- Ranged
+
+Biome 3 seed-controlled encounter bounds:
+
+| Room Type  | Allowed Enemy Count | Allowed Enemy Types | Elite Allowed | Allowed Spawn Patterns |
+|-----------|---------------------|---------------------|---------------|------------------------|
+| COMBAT    | 3–4                 | Swarm, Flanker, Brute, Heavy, Ranged | No | Spread |
+| AMBUSH    | 3–4                 | Swarm, Flanker, Brute, Heavy, Ranged | No | Ambush |
+| ELITE     | 2–3                 | Swarm, Brute, Heavy, Ranged          | Yes | Triangle |
+| SAFE      | 0                   | None                                  | No  | None |
+| MINI_BOSS | 1 primary boss + 0–3 phase-triggered adds | Biome3MiniBoss primary; Swarm/Flanker adds | No | Single for boss; ring-style adds |
+
+Biome 3 notes:
+- Ranged enemies become available beginning in Biome 3
+- Current implementation uses 3–4 enemy standard encounters; the SRS bound should preserve that range
+- Mini-boss reinforcement/adds SHALL remain phase-triggered, not freely randomized
+
+---
+
+### Biome 4 Spawn Constraints
+
+Supported non-boss enemy archetypes in Biome 4:
+- Swarm
+- Flanker
+- Brute
+- Heavy
+- Ranged
+
+Biome 4 seed-controlled encounter bounds:
+
+| Room Type   | Allowed Enemy Count | Allowed Enemy Types | Elite Allowed | Allowed Spawn Patterns |
+|------------|---------------------|---------------------|---------------|------------------------|
+| COMBAT     | 3–4                 | Swarm, Flanker, Brute, Heavy, Ranged | No | Spread |
+| AMBUSH     | 3–4                 | Swarm, Flanker, Brute, Heavy, Ranged | No | Ambush |
+| ELITE      | 2–3                 | Brute, Heavy, Ranged, Swarm          | Yes | Triangle |
+| SAFE       | 0                   | None                                  | No  | None |
+| FINAL_BOSS | 1 final boss + 0–3 bounded boss-triggered adds | FinalBoss primary; bounded adds only if boss logic supports them | No | Fixed boss encounter logic |
+
+Biome 4 notes:
+- Final boss identity and phase behavior are fixed
+- Seed SHALL NOT replace the final boss or alter boss phase sequencing
+- Standard non-boss encounters MAY vary within the count and archetype bounds above
+
+---
+
+### Seed-Controlled Variation Rules for Enemy Spawns
+
+Within the biome-room limits defined above, the seed MAY control:
+
+- exact enemy composition within the allowed pool
+- enemy count within the allowed lower/upper bound
+- spawn slot ordering
+- spawn position realization
+- ambush orientation / spread anchor / triangle anchor
+- bounded scheduled add realization where supported by the encounter design
+
+The seed SHALL NOT control:
+
+- unsupported archetype introduction
+- boss identity
+- boss phase transition logic
+- elite multiplier values
+- room type legality
+- safe room enemy presence
+
+---
+
+### Determinism Requirement
+
+For the same:
+- run seed
+- biome index
+- room index
+- room type
+
+the system SHALL produce the same spawn decision and spawn realization.
+
+---
+
+### Rationale
+
+This design keeps spawn variation controlled and testable by:
+
+- tying encounter bounds to biome progression
+- preventing invalid enemy mixes
+- allowing seed-based variation without chaos
+- preserving fairness, determinism, and implementation compatibility
+
+### 4.1.6 Enemy Spawn Constraints by Biome and Room Type
+
+#### Overview
+
+Enemy spawning SHALL be constrained by:
+- Biome
+- Room type
+
+The seed MAY vary encounter composition ONLY within predefined biome-specific bounds.
+
+---
+
+## Biome 1 Spawn Constraints
+
+### Allowed Bounds
+
+| Room Type  | Allowed Enemy Count | Allowed Types              | Elite Allowed | Pattern   |
+|-----------|---------------------|----------------------------|---------------|----------|
+| COMBAT    | 1–3                 | Swarm, Flanker, Brute      | No            | Spread   |
+| AMBUSH    | 2–3                 | Swarm, Flanker, Brute      | No            | Ambush   |
+| ELITE     | 2–3                 | Swarm, Flanker, Brute      | Yes           | Triangle |
+| SAFE      | 0                   | None                       | No            | None     |
+| MINI_BOSS | 1                   | MiniBoss                   | No            | Single   |
+
+---
+
+### Current Implementation (Reference)
+
+| Room Type  | Enemy Count | Composition Example                  | Notes |
+|-----------|-------------|--------------------------------------|------|
+| COMBAT    | 3           | Swarm + Flanker + Brute             | Standard spread |
+| AMBUSH    | 2–3         | Swarm-based ambush                  | Radius-based spawn |
+| ELITE     | 2–3         | Elite Swarm/Flanker/Brute           | Triangle pattern |
+| SAFE      | 0           | None                                | — |
+| MINI_BOSS | 1           | Biome1 MiniBoss                     | Fixed |
+
+👉 Implementation matches upper bounds but seed MAY choose smaller encounters  
+:contentReference[oaicite:0]{index=0}
+
+---
+
+## Biome 2 Spawn Constraints
+
+### Allowed Bounds
+
+| Room Type  | Allowed Enemy Count | Allowed Types                        | Elite Allowed | Pattern   |
+|-----------|---------------------|--------------------------------------|---------------|----------|
+| COMBAT    | 3–4                 | Swarm, Flanker, Brute, Heavy         | No            | Spread   |
+| AMBUSH    | 2–3                 | Swarm, Flanker, Brute, Heavy         | No            | Ambush   |
+| ELITE     | 2–3                 | Swarm, Brute, Heavy                  | Yes           | Triangle |
+| SAFE      | 0                   | None                                 | No            | None     |
+| MINI_BOSS | 1 + 0–4 adds        | MiniBoss2 + standard enemies         | No            | Mixed    |
+
+---
+
+### Current Implementation (Reference)
+
+| Room Type  | Enemy Count | Composition Example                  | Notes |
+|-----------|-------------|--------------------------------------|------|
+| COMBAT    | 3–4         | Includes Heavy introduction          | Progression increase |
+| AMBUSH    | 2–3         | Mixed enemies                        | Controlled ambush |
+| ELITE     | 3           | Elite variants                       | Higher pressure |
+| MINI_BOSS | 1 + adds    | Timed adds during fight              | Scripted |
+
+👉 Heavy enemy introduced in Biome 2  
+:contentReference[oaicite:1]{index=1}
+
+---
+
+## Biome 3 Spawn Constraints
+
+### Allowed Bounds
+
+| Room Type  | Allowed Enemy Count | Allowed Types                              | Elite Allowed | Pattern   |
+|-----------|---------------------|--------------------------------------------|---------------|----------|
+| COMBAT    | 3–4                 | Swarm, Flanker, Brute, Heavy, Ranged       | No            | Spread   |
+| AMBUSH    | 3–4                 | Swarm, Flanker, Brute, Heavy, Ranged       | No            | Ambush   |
+| ELITE     | 2–3                 | Brute, Heavy, Ranged, Swarm                | Yes           | Triangle |
+| SAFE      | 0                   | None                                       | No            | None     |
+| MINI_BOSS | 1 + 0–3 adds        | Biome3MiniBoss + support enemies           | No            | Mixed    |
+
+---
+
+### Current Implementation (Reference)
+
+| Room Type  | Enemy Count | Composition Example                  | Notes |
+|-----------|-------------|--------------------------------------|------|
+| COMBAT    | 3–4         | Includes ranged enemies              | Increased complexity |
+| AMBUSH    | 3–4         | Multi-directional pressure           | Harder positioning |
+| ELITE     | 2–3         | Heavy + Ranged combos               | Strong synergy |
+| MINI_BOSS | 1 + adds    | Phase-based adds                     | Not random |
+
+👉 Ranged enemies introduced in Biome 3  
+:contentReference[oaicite:2]{index=2}
+
+---
+
+## Biome 4 Spawn Constraints
+
+### Allowed Bounds
+
+| Room Type   | Allowed Enemy Count | Allowed Types                              | Elite Allowed | Pattern   |
+|------------|---------------------|--------------------------------------------|---------------|----------|
+| COMBAT     | 3–4                 | All types                                  | No            | Spread   |
+| AMBUSH     | 3–4                 | All types                                  | No            | Ambush   |
+| ELITE      | 2–3                 | Brute, Heavy, Ranged                       | Yes           | Triangle |
+| SAFE       | 0                   | None                                       | No            | None     |
+| FINAL_BOSS | 1 + 0–3 adds        | FinalBoss                                  | No            | Fixed    |
+
+---
+
+### Current Implementation (Reference)
+
+| Room Type   | Enemy Count | Composition Example                  | Notes |
+|------------|-------------|--------------------------------------|------|
+| COMBAT     | 3–4         | Mixed high difficulty                | Peak difficulty |
+| AMBUSH     | 3–4         | High pressure                        | Tight spacing |
+| ELITE      | 2–3         | Strong elite combos                  | High risk |
+| FINAL_BOSS | 1           | Multi-phase boss                     | Deterministic |
+
+👉 Final boss fully scripted (no seed control)  
+:contentReference[oaicite:3]{index=3}
+
+---
+
+## Seed-Controlled Variation Rules
+
+The seed MAY vary:
+
+- Enemy composition (within allowed pool)
+- Enemy count (within bounds)
+- Spawn positions
+- Spawn ordering
+- Formation orientation
+
+The seed SHALL NOT vary:
+
+- Boss identity or behavior
+- Phase mechanics
+- Allowed enemy pools per biome
+- Maximum bounds
+- Safe room enemy count
+
+---
+
+## Determinism Requirement
+
+Given same:
 
 
+SEED + BIOME + ROOM_INDEX
+
+
+System MUST produce identical:
+- Enemy composition
+- Spawn positions
+- Spawn order
+
+---
+
+## Rationale
+
+This approach:
+
+- Aligns procedural generation with biome progression
+- Allows controlled variability (not chaos)
+- Ensures fairness and reproducibility
+- Matches current implementation while allowing future flexibility
 
 ## 4.2 Room Geometry and Hazard System
 

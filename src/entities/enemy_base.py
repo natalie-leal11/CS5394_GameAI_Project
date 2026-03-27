@@ -6,6 +6,7 @@ from typing import Tuple
 import pygame
 
 from game.config import (
+    enemy_movement_size_tuple,
     PROJECT_ROOT,
     HEAVY_UNSTUCK_RETREAT_DURATION_SEC,
     HEAVY_CLEARANCE_PADDING_PX,
@@ -36,6 +37,10 @@ from game.config import (
     ENEMY_BRUTE_STOP_DISTANCE,
     ENEMY_HEAVY_STOP_DISTANCE,
     ENEMY_RANGED_STOP_DISTANCE,
+    ENEMY_MELEE_ENGAGE_BUFFER_SWARM,
+    ENEMY_MELEE_ENGAGE_BUFFER_FLANKER,
+    ENEMY_MELEE_ENGAGE_BUFFER_BRUTE,
+    ENEMY_MELEE_ENGAGE_BUFFER_HEAVY,
     ENEMY_CONTACT_DAMAGE_INTERVAL_SEC,
     ENEMY_ELITE_HP_MULT,
     ENEMY_ELITE_DAMAGE_MULT,
@@ -56,6 +61,7 @@ from game.config import (
     ENEMY_HEAVY_ATTACK_RADIUS,
     ENEMY_HEAVY_ATTACK_OFFSET,
     ENEMY_HEAVY_ATTACK_COOLDOWN_SEC,
+    DEBUG_HEAVY_MOVE,
 )
 from game.asset_loader import load_animation, load_image
 from systems.animation import AnimationState
@@ -313,6 +319,46 @@ def _enemy_stop_distance(enemy_type: str) -> float:
     return float(ENEMY_SWARM_STOP_DISTANCE)
 
 
+_CLASS_NAME_TO_MOVEMENT_KEY: dict[str, str] = {
+    "Swarm": "swarm",
+    "Flanker": "flanker",
+    "Brute": "brute",
+    "Heavy": "heavy",
+    "Ranged": "ranged",
+    "MiniBoss": "mini_boss",
+    "MiniBoss2": "mini_boss_2",
+    "Biome3MiniBoss": "mini_boss",
+    "FinalBoss": "final_boss",
+}
+
+
+def enemy_type_key_for_class(enemy_cls: type) -> str:
+    """Config ENEMY_MOVEMENT_HITBOX key for this enemy class (spawn / movement bounds)."""
+    return _CLASS_NAME_TO_MOVEMENT_KEY.get(getattr(enemy_cls, "__name__", ""), "swarm")
+
+
+def enemy_movement_half_extents_for_class(enemy_cls: type) -> tuple[float, float]:
+    """Half extents for SpawnSystem clamp; matches EnemyBase.movement_size for standard enemies."""
+    from game.config import enemy_movement_half_extents
+
+    key = enemy_type_key_for_class(enemy_cls)
+    return enemy_movement_half_extents(key)
+
+
+def _enemy_effective_stop_distance(enemy_type: str) -> float:
+    """Walk vs attack: base stop + per-type engage buffer (overlap push still uses base stop_dist only)."""
+    stop_dist = _enemy_stop_distance(enemy_type)
+    if enemy_type == "heavy":
+        return stop_dist + float(ENEMY_MELEE_ENGAGE_BUFFER_HEAVY)
+    if enemy_type == "brute":
+        return stop_dist + float(ENEMY_MELEE_ENGAGE_BUFFER_BRUTE)
+    if enemy_type == "flanker":
+        return stop_dist + float(ENEMY_MELEE_ENGAGE_BUFFER_FLANKER)
+    if enemy_type == "swarm":
+        return stop_dist + float(ENEMY_MELEE_ENGAGE_BUFFER_SWARM)
+    return stop_dist
+
+
 class EnemyBase:
     """
     Shared enemy logic for Phase 3.
@@ -345,6 +391,7 @@ class EnemyBase:
         self.contact_timer = 0.0
 
         self.size = _enemy_size_for_type(enemy_type)
+        self.movement_size = enemy_movement_size_tuple(enemy_type)
         self.velocity_xy = (0.0, 0.0)
         self.facing = (1.0, 0.0)
         self.attack_cooldown_timer = 0.0
@@ -400,6 +447,11 @@ class EnemyBase:
         x, y = self.world_pos
         return pygame.Rect(x - w / 2, y - h / 2, w, h)
 
+    def get_movement_hitbox_rect(self) -> pygame.Rect:
+        w, h = self.movement_size
+        x, y = self.world_pos
+        return pygame.Rect(x - w / 2, y - h / 2, w, h)
+
     # --- Update / AI -------------------------------------------------------
 
     def update(
@@ -441,12 +493,13 @@ class EnemyBase:
         dist = math.hypot(dx, dy)
         vx, vy = 0.0, 0.0
         stop_dist = _enemy_stop_distance(self.enemy_type)
+        engage_dist = _enemy_effective_stop_distance(self.enemy_type)
 
         # Heavy: record "chasing" for trap detection (low displacement for ~0.6s while chasing = stuck)
         if self.enemy_type == "heavy":
-            self._heavy_chasing_this_frame = dist > stop_dist
+            self._heavy_chasing_this_frame = dist > engage_dist
 
-        if dist > stop_dist:
+        if dist > engage_dist:
             if dist > 1e-3:
                 nx = dx / dist
                 ny = dy / dist
@@ -466,7 +519,7 @@ class EnemyBase:
             self.enemy_type == "heavy"
             and getattr(self, "_unstuck_retreat_timer", 0) > 0
             and room_rect is not None
-            and dist > stop_dist
+            and dist > engage_dist
         ):
             dx, dy = getattr(self, "_unstuck_retreat_direction", (1.0, 0.0))
             vx = dx * self.move_speed
@@ -511,10 +564,10 @@ class EnemyBase:
         if (
             self.enemy_type == "heavy"
             and callable(heavy_clearance_cb)
-            and dist > stop_dist
+            and dist > engage_dist
             and getattr(self, "_unstuck_retreat_timer", 0) <= 0
         ):
-            w, h = self.size
+            w, h = self.movement_size
             padding = HEAVY_CLEARANCE_PADDING_PX
 
             def _check_direction(ux: float, uy: float) -> bool:
@@ -601,8 +654,12 @@ class EnemyBase:
         # and push it outward so its center is ~stop_dist away from the player.
         # Skip during player dash so enemies are not displaced by dash (player-only movement).
         if not getattr(player, "dash_active", False):
-            enemy_rect = self.get_hitbox_rect()
-            player_rect = player.get_hitbox_rect()
+            enemy_rect = self.get_movement_hitbox_rect()
+            player_rect = (
+                player.get_movement_hitbox_rect()
+                if hasattr(player, "get_movement_hitbox_rect")
+                else player.get_hitbox_rect()
+            )
             if enemy_rect.colliderect(player_rect):
                 # Use direction from player to enemy so we never "teleport" through
                 # the player to the opposite side.
@@ -618,6 +675,13 @@ class EnemyBase:
                 self.world_pos = (x, y)
 
         update_stuck_tracking(self, start_pos)
+
+        if self.enemy_type == "heavy" and DEBUG_HEAVY_MOVE:
+            sx, sy = self.world_pos
+            print(
+                f"[MOVE DEBUG] enemy=heavy stuck={getattr(self, '_stuck_frames', 0)} "
+                f"pos=({sx:.1f},{sy:.1f})"
+            )
 
         # Heavy: tick down retreat timer and reroute cache (deterministic unstuck / obstacle avoid)
         if self.enemy_type == "heavy":

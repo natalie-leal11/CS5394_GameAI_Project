@@ -1,0 +1,37 @@
+=== RUN START ===
+timestamp: 2026-03-22T02:18:56
+run_seed: 1774163936382
+variant_id (run_seed % 3): 0
+log_file: C:\Users\maham\Downloads\CS5394_GameAI_Project\logs\seed_run_2026-03-22_02-18-56.txt
+
+=== DUNGEON STRUCTURE ===
+fixed rooms:
+  START = 0
+  MINI_BOSS = 7, 15, 23
+  FINAL_BOSS = 29
+
+Biome 1:
+  room indices: 0–7
+  SAFE room index: 3
+  room order: ['START', 'COMBAT', 'COMBAT', 'SAFE', 'COMBAT', 'ELITE', 'AMBUSH', 'MINI_BOSS']
+
+Biome 2:
+  room indices: 8–15
+  SAFE room index: 11
+  room order: ['COMBAT', 'COMBAT', 'COMBAT', 'SAFE', 'COMBAT', 'ELITE', 'AMBUSH', 'MINI_BOSS']
+
+Biome 3:
+  room indices: 16–23
+  SAFE room index: 19
+  room order: ['COMBAT', 'COMBAT', 'ELITE', 'SAFE', 'COMBAT', 'ELITE', 'AMBUSH', 'MINI_BOSS']
+
+Biome 4:
+  room indices: 24–29
+  SAFE room index: 27
+  room order: ['COMBAT', 'COMBAT', 'ELITE', 'SAFE', 'AMBUSH', 'FINAL_BOSS']
+
+=== DETERMINISM CHECK HELPER ===
+Compare two run files manually:
+  - same run_seed -> files should match except timestamp/file path
+  - different run_seed -> only seed-controlled sections should differ
+

@@ -79,6 +79,10 @@ class RoomController:
         else:
             self._door_system.close_all()
         self._hazard_system.set_room(room)
+        # Phase 1 seed debug (file only; remove module + calls when done).
+        from game.phase1_seed_debug import log_room_loaded
+
+        log_room_loaded(campaign_index, room, self._seed)
         return room
 
     def update(self, dt: float) -> None:

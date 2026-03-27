@@ -1,18 +1,18 @@
 # Phase 7: Room data and layout. One room at a time; deterministic from SEED + room_index.
 
+from __future__ import annotations
+
+import random
 from dataclasses import dataclass, field
 from enum import Enum
-import random
 
 from game.config import (
     TILE_SIZE,
     SEED,
     LOGICAL_W,
     LOGICAL_H,
-    HAZARD_LAVA_MAX_FRACTION,
-    HAZARD_SLOW_MIN_FRACTION,
-    HAZARD_SLOW_MAX_FRACTION,
-    BEGINNER_TEST_MODE,
+    PLAYER_MOVEMENT_HITBOX_W,
+    PLAYER_MOVEMENT_HITBOX_H,
     USE_BIOME2,
     USE_BIOME3,
     USE_BIOME4,
@@ -24,6 +24,7 @@ from game.config import (
     BIOME4_ROOM_COUNT,
     BIOME4_START_INDEX,
 )
+from game.rng import channel_key, derive_seed
 
 
 def total_campaign_rooms() -> int:
@@ -74,28 +75,147 @@ def _room_grid_size() -> tuple[int, int]:
 
 
 def _room_order_biome1(seed: int) -> list[RoomType]:
-    """Biome 1 rooms 0-7. Beginner Test Mode: fixed order (no shuffle). Otherwise deterministic shuffle."""
-    if BEGINNER_TEST_MODE:
-        # Fixed order per Biome1_Beginner_Test_Mode_Spec §4: 0 Start, 1-2 Combat, 3 Safe, 4 Combat, 5 Elite, 6 Ambush, 7 Mini Boss
-        return [
-            RoomType.START,
-            RoomType.COMBAT,   # 1 Combat 1
-            RoomType.COMBAT,   # 2 Combat 2
-            RoomType.SAFE,    # 3 Safe
-            RoomType.COMBAT,   # 4 Combat 3
-            RoomType.ELITE,   # 5 Elite
-            RoomType.AMBUSH,  # 6 Ambush
-            RoomType.MINI_BOSS,  # 7 Mini Boss
-        ]
-    rng = random.Random(seed)
-    mid = [RoomType.COMBAT, RoomType.COMBAT, RoomType.COMBAT, RoomType.SAFE, RoomType.ELITE, RoomType.AMBUSH]
-    rng.shuffle(mid)
-    return [RoomType.START] + mid + [RoomType.MINI_BOSS]
+    """Biome 1 rooms 0-7. SRS §4.1.4 distribution + seed shuffle (Beginner Test Mode = fixed order)."""
+    from dungeon.srs_biome_order import room_order_biome1_srs
+
+    return room_order_biome1_srs(seed)
 
 
-def _make_tile_grid(width: int, height: int, room_type: RoomType, room_index: int, seed: int) -> list[list[str]]:
-    """Fill grid with floor; place lava/slow only in playable area; ensure one 3x3 safe zone. Deterministic."""
-    rng = random.Random(seed + room_index * 1000)
+def _hazard_counts_for_room(biome_index: int, room_type: RoomType) -> tuple[int, int]:
+    """
+    Deterministic hazard counts independent of seed.
+    Hazards depend only on biome_index and room_type.
+    """
+    if room_type in (RoomType.START, RoomType.SAFE):
+        return (0, 0)
+    if room_type == RoomType.FINAL_BOSS:
+        return (10, 5)
+
+    # AMBUSH / MINI_BOSS / CORRIDOR follow COMBAT style for their biome.
+    key = room_type
+    if room_type in (RoomType.AMBUSH, RoomType.MINI_BOSS, RoomType.CORRIDOR):
+        key = RoomType.COMBAT
+
+    table: dict[int, dict[RoomType, tuple[int, int]]] = {
+        1: {
+            RoomType.COMBAT: (8, 20),   # lava 5–10, slow 15–25
+            RoomType.ELITE: (10, 25),   # lava 8–12, slow 20–30
+        },
+        2: {
+            RoomType.COMBAT: (11, 25),  # lava 8–14, slow 20–30
+            RoomType.ELITE: (15, 30),   # lava 12–18, slow 25–35
+        },
+        3: {
+            RoomType.COMBAT: (14, 30),  # lava 10–18, slow 25–35
+            RoomType.ELITE: (18, 35),   # lava 14–22, slow 30–40
+        },
+        4: {
+            RoomType.COMBAT: (16, 35),  # lava 12–20, slow 30–40
+            RoomType.ELITE: (20, 40),   # lava 16–24, slow 35–45
+        },
+    }
+    biome_map = table.get(int(biome_index), table[1])
+    return biome_map.get(key, biome_map[RoomType.COMBAT])
+
+
+def _placement_rng(room_index: int, biome_index: int, room_type: RoomType, phase: str) -> random.Random:
+    """
+    PRNG for hazard *placement* only. Uses fixed config.SEED + room geometry — not run_seed —
+    so counts stay independent of run seed while layouts stay reproducible per room.
+    """
+    s = derive_seed(
+        int(SEED),
+        int(room_index),
+        int(biome_index),
+        channel_key(f"hazard_scatter_{phase}"),
+        channel_key(room_type.value),
+    )
+    return random.Random(s)
+
+
+def _would_form_three_in_line(
+    grid: list[list[str]],
+    height: int,
+    width: int,
+    r: int,
+    c: int,
+    tile: str,
+) -> bool:
+    """True if setting (r,c) to `tile` would create a contiguous run of 3+ on row, column, or diagonal."""
+    dirs = ((0, 1), (1, 0), (1, 1), (1, -1))
+
+    def at(rr: int, cc: int) -> str:
+        if rr == r and cc == c:
+            return tile
+        return grid[rr][cc]
+
+    for dr, dc in dirs:
+        total = 1
+        rr, cc = r + dr, c + dc
+        while 0 <= rr < height and 0 <= cc < width and at(rr, cc) == tile:
+            total += 1
+            rr += dr
+            cc += dc
+        rr, cc = r - dr, c - dc
+        while 0 <= rr < height and 0 <= cc < width and at(rr, cc) == tile:
+            total += 1
+            rr -= dr
+            cc -= dc
+        if total >= 3:
+            return True
+    return False
+
+
+def _scatter_place_tiles(
+    grid: list[list[str]],
+    height: int,
+    width: int,
+    candidates: list[tuple[int, int]],
+    n_place: int,
+    tile: str,
+    rng: random.Random,
+) -> None:
+    """
+    Scatter `n_place` hazard tiles onto floor cells from `candidates` using shuffled sampling.
+    Prefer placements that do not form 3-in-a-row lines (cardinal + diagonal); relax if needed
+    to preserve exact counts.
+    """
+    if n_place <= 0:
+        return
+    pool = [(r, c) for r, c in candidates if grid[r][c] == TILE_FLOOR]
+    rng.shuffle(pool)
+    placed = 0
+    deferred: list[tuple[int, int]] = []
+    for r, c in pool:
+        if placed >= n_place:
+            break
+        if grid[r][c] != TILE_FLOOR:
+            continue
+        if _would_form_three_in_line(grid, height, width, r, c, tile):
+            deferred.append((r, c))
+            continue
+        grid[r][c] = tile
+        placed += 1
+    rng.shuffle(deferred)
+    for r, c in deferred:
+        if placed >= n_place:
+            break
+        if grid[r][c] != TILE_FLOOR:
+            continue
+        grid[r][c] = tile
+        placed += 1
+    if placed < n_place:
+        remainder = [(r, c) for r, c in candidates if grid[r][c] == TILE_FLOOR]
+        rng.shuffle(remainder)
+        for r, c in remainder:
+            if placed >= n_place:
+                break
+            grid[r][c] = tile
+            placed += 1
+
+
+def _make_tile_grid(width: int, height: int, room_type: RoomType, room_index: int, seed: int, biome_index: int) -> list[list[str]]:
+    """Fill grid with floor; lava/slow counts from biome+room_type; scattered placement (not run_seed-driven)."""
     grid = [[TILE_FLOOR for _ in range(width)] for _ in range(height)]
     border = wall_border_thickness(room_type)
     # Playable tile indices: row [border, height-border), col [border, width-border)
@@ -103,17 +223,7 @@ def _make_tile_grid(width: int, height: int, room_type: RoomType, room_index: in
     c0, c1 = border, width - border
 
     if room_type == RoomType.START or room_type == RoomType.SAFE:
-        # No lava in Start or Safe; minimal/no slow in Safe per spec.
-        if room_type == RoomType.SAFE:
-            slow_pct = rng.uniform(0, min(0.05, HAZARD_SLOW_MAX_FRACTION))
-            total = (r1 - r0) * (c1 - c0)
-            n_slow = max(0, int(total * slow_pct))
-            cells = [(r, c) for r in range(r0, r1) for c in range(c0, c1)]
-            rng.shuffle(cells)
-            for i, (r, c) in enumerate(cells):
-                if i >= n_slow:
-                    break
-                grid[r][c] = TILE_SLOW
+        # SAFE and START must always be hazard-free.
         return grid
 
     # Reserve center 3x3 of playable area as safe zone (no lava/slow).
@@ -130,29 +240,9 @@ def _make_tile_grid(width: int, height: int, room_type: RoomType, room_index: in
     entrance_safe_c_max = c0 + margin
     entrance_safe_r_min = r1 - margin
 
-    total = (r1 - r0) * (c1 - c0)
-    if room_type == RoomType.FINAL_BOSS:
-        # Biome 4 Final Boss arena: lava ≤10%, slow ≤15%, minimum safe area ≥35%.
-        lava_cap = int(total * 0.10)
-        slow_cap = int(total * 0.15)
-        hazard_cap = int(total * 0.65)  # so safe ≥ 35%
-        n_lava = rng.randint(0, max(0, min(lava_cap, hazard_cap)))
-        n_slow = rng.randint(0, max(0, min(slow_cap, hazard_cap - n_lava)))
-    elif BEGINNER_TEST_MODE:
-        # §12: Lava 0-3%, Slow 5-8%, Safe ≥75%
-        lava_cap = int(total * 0.03)
-        slow_min = int(total * 0.05)
-        slow_max = int(total * 0.08)
-        n_lava = rng.randint(0, max(0, lava_cap))
-        n_slow = rng.randint(slow_min, min(slow_max, total - n_lava))
-    else:
-        lava_cap = int(total * HAZARD_LAVA_MAX_FRACTION)
-        slow_min = int(total * HAZARD_SLOW_MIN_FRACTION)
-        slow_max = int(total * HAZARD_SLOW_MAX_FRACTION)
-        n_lava = rng.randint(0, max(0, lava_cap))
-        n_slow = rng.randint(slow_min, min(slow_max, total - n_lava))
+    n_lava, n_slow = _hazard_counts_for_room(int(biome_index), room_type)
 
-    cells = []
+    cells: list[tuple[int, int]] = []
     for r in range(r0, r1):
         for c in range(c0, c1):
             if safe_r0 <= r < safe_r1 and safe_c0 <= c < safe_c1:
@@ -164,14 +254,16 @@ def _make_tile_grid(width: int, height: int, room_type: RoomType, room_index: in
             if room_index > 0 and c < entrance_safe_c_max and r >= entrance_safe_r_min:
                 continue
             cells.append((r, c))
-    rng.shuffle(cells)
 
-    for i, (r, c) in enumerate(cells):
-        if i < n_lava:
-            grid[r][c] = TILE_LAVA
-        elif i < n_lava + n_slow:
-            grid[r][c] = TILE_SLOW
-        # else stays floor
+    max_cells = len(cells)
+    n_lava = max(0, min(int(n_lava), max_cells))
+    n_slow = max(0, min(int(n_slow), max_cells - n_lava))
+
+    h, w = height, width
+    rng_lava = _placement_rng(room_index, biome_index, room_type, "lava")
+    _scatter_place_tiles(grid, h, w, cells, n_lava, TILE_LAVA, rng_lava)
+    rng_slow = _placement_rng(room_index, biome_index, room_type, "slow")
+    _scatter_place_tiles(grid, h, w, cells, n_slow, TILE_SLOW, rng_slow)
 
     return grid
 
@@ -250,14 +342,42 @@ class Room:
             ty < b or ty >= self.height - b or tx < b or tx >= self.width - b
         )
 
-    def playable_bounds_pixels(self) -> tuple[float, float, float, float]:
-        """(min_x, min_y, max_x, max_y) in world pixels for playable area."""
+    def playable_bounds_for_half_extents(
+        self, half_w: float, half_h: float
+    ) -> tuple[float, float, float, float]:
+        """Inclusive world bounds for an entity center given half-width/half-height of its AABB.
+
+        Inner edges of the wall band are at ``b*TILE`` and ``(width-b)*TILE`` / ``(height-b)*TILE``.
+        Center (cx, cy) is valid if the axis-aligned box stays inside those edges (same rule as
+        wall collision). Use movement half extents (player movement box; enemy ``movement_size`` /
+        config), not full sprite/combat hitbox.
+        """
         b = self.wall_border()
-        min_x = b * TILE_SIZE
-        min_y = b * TILE_SIZE
-        max_x = (self.width - b) * TILE_SIZE
-        max_y = (self.height - b) * TILE_SIZE
+        inner_w = self.width - 2 * b
+        inner_h = self.height - 2 * b
+        if inner_w <= 0 or inner_h <= 0:
+            cx = (self.width // 2) + 0.5
+            cy = (self.height // 2) + 0.5
+            p = cx * TILE_SIZE
+            q = cy * TILE_SIZE
+            return (p, q, p, q)
+        min_x = b * TILE_SIZE + half_w
+        min_y = b * TILE_SIZE + half_h
+        max_x = (self.width - b) * TILE_SIZE - half_w
+        max_y = (self.height - b) * TILE_SIZE - half_h
+        if min_x > max_x or min_y > max_y:
+            cx = (self.width // 2) + 0.5
+            cy = (self.height // 2) + 0.5
+            p = cx * TILE_SIZE
+            q = cy * TILE_SIZE
+            return (p, q, p, q)
         return (min_x, min_y, max_x, max_y)
+
+    def playable_bounds_pixels(self) -> tuple[float, float, float, float]:
+        """Bounds for player movement body center (Player.world_pos). See ``playable_bounds_for_half_extents``."""
+        return self.playable_bounds_for_half_extents(
+            PLAYER_MOVEMENT_HITBOX_W * 0.5, PLAYER_MOVEMENT_HITBOX_H * 0.5
+        )
 
     def get_valid_enemy_spawn_tiles(
         self,
@@ -330,7 +450,7 @@ def generate_room(campaign_index: int, seed: int | None = None) -> Room:
         biome_index = 4
 
     width, height = _room_grid_size()
-    grid = _make_tile_grid(width, height, room_type, campaign_index, seed)
+    grid = _make_tile_grid(width, height, room_type, campaign_index, seed, biome_index)
     border = wall_border_thickness(room_type)
     spawn_tile = _choose_spawn_tile(width, height, grid, border)
     total_cells = width * height

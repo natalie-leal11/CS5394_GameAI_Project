@@ -26,6 +26,9 @@ PLAYER_SIZE = (96, 96)
 # Hitbox (body) for combat/collision: proportional to sprite.
 PLAYER_HITBOX_W = 32
 PLAYER_HITBOX_H = 52
+# Movement / wall collision / room clamp: tighter body than combat hitbox (same center as world_pos).
+PLAYER_MOVEMENT_HITBOX_W = 32
+PLAYER_MOVEMENT_HITBOX_H = 32
 BRUTE_SIZE = (96, 96)
 MINI_BOSS_SIZE = (128, 128)   # Mini Boss / Mini Boss 2 / Biome 3 Mini Boss (imposing vs 96×96 player)
 FINAL_BOSS_SIZE = (128, 128)
@@ -51,25 +54,44 @@ ENEMY_HEAVY_BASE_DAMAGE = 12   # Biome 2: Heavy armored
 # Minimum separation / attack radius (px) — enemies must not visually overlap player.
 ENEMY_SWARM_STOP_DISTANCE = 40
 ENEMY_FLANKER_STOP_DISTANCE = 50
-ENEMY_BRUTE_STOP_DISTANCE = 60
-ENEMY_HEAVY_STOP_DISTANCE = 64
+ENEMY_BRUTE_STOP_DISTANCE = 72
+ENEMY_HEAVY_STOP_DISTANCE = 82
 ENEMY_RANGED_STOP_DISTANCE = 180
+
+# Extra px on base stop for walk→attack only (identity per type; overlap push still uses base stop).
+ENEMY_MELEE_ENGAGE_BUFFER_SWARM = 3
+ENEMY_MELEE_ENGAGE_BUFFER_FLANKER = 5
+ENEMY_MELEE_ENGAGE_BUFFER_BRUTE = 10
+ENEMY_MELEE_ENGAGE_BUFFER_HEAVY = 18
+
+# Non-boss melee hit tuning: scale arc radius + optional extra reach on body-distance fallback.
+ENEMY_MELEE_HIT_RADIUS_MULT_SWARM = 1.02
+ENEMY_MELEE_HIT_RADIUS_MULT_FLANKER = 1.05
+ENEMY_MELEE_HIT_RADIUS_MULT_BRUTE = 1.10
+ENEMY_MELEE_HIT_RADIUS_MULT_HEAVY = 1.12
+ENEMY_MELEE_BODY_FALLBACK_EXTRA_SWARM = 0
+ENEMY_MELEE_BODY_FALLBACK_EXTRA_FLANKER = 4
+ENEMY_MELEE_BODY_FALLBACK_EXTRA_BRUTE = 8
+ENEMY_MELEE_BODY_FALLBACK_EXTRA_HEAVY = 12
+# Added to center-distance melee check (all standard melee; bosses use separate paths in combat.py)
+ENEMY_MELEE_BODY_EXTRA_UNIVERSAL_PX = 8.0
+# Flanker only: extra px when testing distance from player to enemy→arc segment (angled approaches).
+ENEMY_MELEE_FLANKER_SEGMENT_REACH_PX = 8.0
 
 # Enemy melee attack hitbox radii/offsets and cooldowns (Biome 1).
 ENEMY_SWARM_ATTACK_RADIUS = 20.0
 ENEMY_SWARM_ATTACK_OFFSET = 20.0
 ENEMY_SWARM_ATTACK_COOLDOWN_SEC = 1.2
 
-ENEMY_FLANKER_ATTACK_RADIUS = 16.0
+ENEMY_FLANKER_ATTACK_RADIUS = 17.0
 ENEMY_FLANKER_ATTACK_OFFSET = 18.0
 ENEMY_FLANKER_ATTACK_COOLDOWN_SEC = 1.0
 
-ENEMY_BRUTE_ATTACK_RADIUS = 26.0
+ENEMY_BRUTE_ATTACK_RADIUS = 38.0
 ENEMY_BRUTE_ATTACK_OFFSET = 22.0
 ENEMY_BRUTE_ATTACK_COOLDOWN_SEC = 1.5
 
-# Heavy stops at 64 px; attack center is offset 24 px toward player → player at 40 px from center; radius must cover that
-ENEMY_HEAVY_ATTACK_RADIUS = 42.0
+ENEMY_HEAVY_ATTACK_RADIUS = 56.0
 ENEMY_HEAVY_ATTACK_OFFSET = 24.0
 ENEMY_HEAVY_ATTACK_COOLDOWN_SEC = 1.7
 
@@ -112,6 +134,31 @@ ENEMY_MIN_Y = ENEMY_BOUNDS_PAD
 ENEMY_MAX_X = LOGICAL_W - ENEMY_BOUNDS_PAD
 ENEMY_MAX_Y = LOGICAL_H - ENEMY_BOUNDS_PAD
 
+# Enemy movement/collision body (centered on world_pos). Smaller than sprite size for top-edge navigation.
+# Keys match enemy_type strings; "default" fallback.
+ENEMY_MOVEMENT_HITBOX: dict[str, tuple[int, int]] = {
+    "swarm": (40, 40),
+    "flanker": (44, 44),
+    "brute": (72, 72),
+    "heavy": (80, 80),
+    "ranged": (52, 52),
+    "mini_boss": (96, 96),
+    "mini_boss_2": (96, 96),
+    "final_boss": (112, 112),
+    "default": (48, 48),
+}
+
+
+def enemy_movement_size_tuple(enemy_type: str) -> tuple[int, int]:
+    """Width × height for movement clamp and wall collision (not combat hitbox)."""
+    return ENEMY_MOVEMENT_HITBOX.get(enemy_type, ENEMY_MOVEMENT_HITBOX["default"])
+
+
+def enemy_movement_half_extents(enemy_type: str) -> tuple[float, float]:
+    w, h = enemy_movement_size_tuple(enemy_type)
+    return (w * 0.5, h * 0.5)
+
+
 # Asset paths (relative to project root).
 ASSETS_ROOT = "assets"
 PLACEHOLDER_IMAGE = "assets/placeholders/missing.png"
@@ -129,6 +176,10 @@ DEBUG_PLAYER_MOVEMENT = False
 DEBUG_DOOR_TRIGGER = False
 # Debug player attack ranges/rects: circles + attack hitbox overlays.
 DEBUG_DRAW_ATTACK_RANGE = False
+# Debug top-edge walkability: world/tile, wall_band, bounds (verbose; enable briefly).
+DEBUG_TOP_EDGE = False
+# Debug movement hitbox / spawn clamp alignment (verbose).
+DEBUG_MOVEMENT_HITBOX = False
 
 # --- Phase 2: Player and movement (no hardcoding in entity/system code) ---
 # Controls per Requirements_Analysis_Biome1.md §3.2: Movement W/A/S/D, Short LMB, Long RMB, Dash Space, Pause Esc.
@@ -171,8 +222,23 @@ SPAWN_SLOT_DELAY_SEC = 0.4
 # Advanced spawn: safe position generator (px / tiles).
 MIN_DISTANCE_FROM_PLAYER_PX = 150
 MIN_TILES_FROM_WALL = 3
-MIN_TILES_FROM_WALL_HEAVY = 4       # Heavy (88x88) needs 1 extra tile from walls
-MIN_TILES_FROM_CORNER_HEAVY = 2    # Heavy must spawn at least 2 tiles from room corners
+MIN_TILES_FROM_WALL_HEAVY = 6       # Large movement body: stay farther from wall band than standard spawns
+MIN_TILES_FROM_CORNER_HEAVY = 4    # Heavy: wider corner exclusion (axis-aligned pocket avoidance)
+# General enemy spawn (spread / ambush / triangle): stay off edges and out of corner pockets
+SPAWN_EXTRA_INTERIOR_WALL_TILES = 3  # extra tiles inset from playable border (added to MIN_TILES_FROM_WALL)
+# Axis-aligned corner pockets: reject if within this many tiles from BOTH meeting edges (all standard melee spawns)
+SPAWN_CORNER_ZONE_TILES = 5
+# Require at least this many walkable (8-neighbor) tiles around candidate; culls wall pockets / traps
+SPAWN_MIN_NEIGHBOR_WALKABLE = 6
+SPAWN_MIN_NEIGHBOR_WALKABLE_HEAVY = 6
+# Temporary debug: print spawn accept/reject to console (set False to silence)
+SPAWN_DEBUG_LOG = False
+# Heavy-only spawn logs without enabling full SPAWN_DEBUG_LOG
+DEBUG_HEAVY_SPAWN = False
+# Heavy movement / stuck diagnostics
+DEBUG_HEAVY_MOVE = False
+# Enemy melee registration (attack state + range vs damage applied)
+DEBUG_MELEE_HIT = False
 MIN_TILES_FROM_DOOR = 3
 MIN_DISTANCE_BETWEEN_ENEMIES_PX = 90
 ELITE_EXTRA_SPACING_PX = 60
@@ -199,9 +265,13 @@ MINI_BOSS_BASE_HP = 200
 MINI_BOSS_BASE_DAMAGE = 18
 MINI_BOSS_MOVE_SPEED = 100
 MINI_BOSS_DASH_SPEED = 180
-MINI_BOSS_ATTACK_RADIUS = 32.0
+MINI_BOSS_ATTACK_RADIUS = 38.0
 MINI_BOSS_ATTACK_OFFSET = 28.0
 MINI_BOSS_ATTACK_COOLDOWN_SEC = 2.0
+# combat.py only: more reliable hit registration for mini_boss / mini_boss_2 / mini_boss_3 (does not change damage)
+MINI_BOSS_MELEE_HIT_RADIUS_MULT = 1.10
+MINI_BOSS_MELEE_BODY_EXTRA_PX = 12.0
+MINI_BOSS_MELEE_ARC_BONUS_PX = 10.0
 # Biome 3 mini boss only: ranged fireball (medium/long range).
 BIOME3_MINIBOSS_FIREBALL_DAMAGE = 16
 BIOME3_MINIBOSS_FIREBALL_SPEED = 280.0
@@ -336,7 +406,7 @@ START_ROOM_INDEX = 0
 
 # --- Biome 1 Beginner Test Mode (promptforprompt/Biome1_Beginner_Test_Mode_Spec.md) ---
 # Temporary: fixed room order, reduced difficulty, deterministic. Set False to revert to normal.
-BEGINNER_TEST_MODE = True
+BEGINNER_TEST_MODE = False
 # When BEGINNER_TEST_MODE: enemy speeds as % of player (220 px/s). Swarm fixed at 100 px/s; others as %.
 if BEGINNER_TEST_MODE:
     _player_speed = PLAYER_MOVE_SPEED
