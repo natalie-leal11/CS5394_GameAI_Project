@@ -27,8 +27,8 @@ def test_phase2_config():
     assert PLAYER_DASH_SPEED_MULT == 2.2
     assert PLAYER_DASH_DURATION_SEC == 0.18
     assert PLAYER_DASH_COOLDOWN_SEC == 0.9
-    assert PLAYER_BASE_HP == 100
-    assert PLAYER_PARRY_WINDOW_SEC == 0.12
+    assert PLAYER_BASE_HP == 200
+    assert PLAYER_PARRY_WINDOW_SEC == 0.18
     assert len(PLAYER_SIZE) == 2 and PLAYER_SIZE[0] >= 64 and PLAYER_SIZE[1] >= 64
 
 

@@ -36,7 +36,7 @@ class DifficultyParams:
     safe_room_heal_bias_min: float = -0.1
     safe_room_heal_bias_max: float = 0.1
 
-    # --- PlayerModel Phase 2: HP bands (percent 0–100) ---
+    # --- PlayerModel: reference bands (percent 0–100); optional for other systems ---
     player_model_low_hp_percent: float = 30.0
     player_model_near_death_hp_percent: float = 15.0
     player_model_high_hp_percent: float = 75.0
@@ -53,7 +53,7 @@ class DifficultyParams:
     # Ratios use rooms_cleared as denominator; min rooms before ratio is trusted
     player_model_min_rooms_for_ratio: int = 2
 
-    # Legacy (pre–weighted PlayerModel); kept for compatibility
+    # Legacy (pre–v3 PlayerModel); kept for compatibility / external docs
     player_model_score_margin: float = 12.0
     player_model_struggling_score_threshold: float = 52.0
     player_model_dominating_score_threshold: float = 48.0
@@ -68,49 +68,30 @@ class DifficultyParams:
     # reward_collected_flag as a weak positive for "engaged" play (not dominating alone)
     player_model_reward_collected_bonus: float = 6.0
 
-    # --- PlayerModel v2: global thresholds (see PlayerModel rules table) ---
-    # HP/struggle vs dominate bands (0–100 scale; doc "0.30" means 30%)
-    player_model_struggling_hp_percent: float = 30.0
-    # Average HP loss across last_3 above this (percent points) => high_recent_avg_hp_loss signal
-    player_model_recent_avg_hp_loss_struggling: float = 22.0
-    # Average HP loss across last_3 at or below this (percent points) => part of low_damage_and_loss
-    player_model_recent_avg_hp_loss_dominating: float = 8.0
-    # Damage taken in last completed room (HP points) — "low" for dominate signal
-    player_model_damage_taken_low_threshold: float = 45.0
-    # Rolling average clear time (seconds) — "fast" for dominate signal
+    # --- PlayerModel: life-tier visible state (applied after v3 base; see _life_phase_visible_state) ---
+    player_model_life1_dominating_min_hp_percent: float = 70.0
+    player_model_life1_stable_min_hp_percent: float = 40.0
+    player_model_life2_stable_min_hp_percent: float = 70.0
+
+    # --- PlayerModel v3: percentage rules (PlayerModel.classify; single-life run) ---
+    # STRUGGLING: HP <= critical OR recent death OR (2+ weak signals among weak HP / bad rooms / high avg loss)
+    player_model_struggling_hp_critical_percent: float = 25.0
+    player_model_struggling_hp_weak_percent: float = 40.0
+    player_model_struggling_bad_rooms_min: int = 2  # near_death or death in last 3 rooms
+    player_model_struggling_avg_hp_loss_min: float = 30.0  # average HP% lost across last 3 rooms
+
+    # DOMINATING: baseline HP + no recent death + at least two strong performance signals (clean / low loss / fast)
+    player_model_dominating_hp_min_percent: float = 70.0
+    player_model_dominating_avg_hp_loss_max_percent: float = 15.0
+    player_model_dominating_clean_clears_min: int = 2  # in last 3 rooms
+    # Rolling average clear time (seconds) over last 3 — "fast" when len >= 2
     player_model_fast_clear_avg_seconds: float = 55.0
-    # Share thresholds (with rooms_cleared denominator; min_rooms_for_ratio gates use)
+
+    # Share thresholds (legacy; not used by PlayerModel v3 classify)
     player_model_struggling_share_threshold: float = 0.45
     player_model_dominating_share_threshold: float = 0.40
-    # Healing pressure: total_healing_received / rooms_cleared above this => struggle signal
+    # Healing pressure (legacy)
     player_model_healing_per_room_struggling_threshold: float = 45.0
-    # Minimum weighted sum on an axis to qualify STRUGGLING / DOMINATING (before margins / gates)
-    player_model_weighted_min_score: float = 2.0
-    # When both axes could apply, winner must exceed the other by at least this (else STABLE)
-    player_model_weighted_preference_margin: float = 0.35
-    # First N cleared rooms: default STABLE unless recent_death_flag (obvious struggle)
-    player_model_early_rooms_stable_count: int = 2
-
-    # Repeated bad results: need at least this many near_death or death in last_3
-    player_model_repeated_bad_results_min: int = 2
-    # Dominate: need at least this many clean_clear in last_3 (requires len >= 2)
-    player_model_clean_clear_majority_min: int = 2
-
-    # Per-signal weights (struggle axis)
-    player_model_w_s_recent_death: float = 1.15
-    player_model_w_s_low_hp: float = 1.0
-    player_model_w_s_repeated_near_death_or_death: float = 1.2
-    player_model_w_s_high_recent_avg_hp_loss: float = 1.0
-    player_model_w_s_struggling_rooms_share: float = 1.05
-    player_model_w_s_high_healing_per_room: float = 0.70
-
-    # Per-signal weights (dominate axis)
-    player_model_w_d_no_recent_death: float = 0.80
-    player_model_w_d_hp_comfortable: float = 1.10
-    player_model_w_d_mostly_clean_clear: float = 1.15
-    player_model_w_d_low_damage_and_loss: float = 1.10
-    player_model_w_d_fast_recent_clears: float = 1.00
-    player_model_w_d_dominating_rooms_share: float = 1.05
 
 
 # Default singleton for imports (immutable)

@@ -67,8 +67,9 @@ def apply_player_movement(
         if min_y is None: min_y = rb_min_y
         if max_x is None: max_x = rb_max_x
         if max_y is None: max_y = rb_max_y
-    # States that lock movement (player decides in player.update)
-    locking_states = {"attack_short", "attack_long", "dash", "hit", "death"}
+    # States that lock movement (player decides in player.update).
+    # Attacks do not lock movement — WASD still applies during attack_short / attack_long.
+    locking_states = {"dash", "hit", "death"}
     can_move = getattr(player, "state", "idle") not in locking_states
 
     vx, vy = 0.0, 0.0

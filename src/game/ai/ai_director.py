@@ -36,6 +36,38 @@ class VariationDirective:
     safe_room: SafeRoomDirective = field(default_factory=SafeRoomDirective)
 
 
+@dataclass(frozen=True)
+class EncounterDirectorSnapshot:
+    """
+    Immutable copy of director outputs used when building spawns for a room.
+    Updated only after a room-end classification (next room uses this; current room is frozen).
+    """
+
+    difficulty_modifier: float = 1.0
+    enemy_adjustment: int = 0
+    reinforcement_chance: float = 0.1
+    composition_bias: str = "normal"
+    last_player_state_name: str | None = "STABLE"
+    pressure_level: str = "medium"
+    composition_bias_b2: str = "balanced"
+    reinforcement_chance_b2: float = 0.15
+    hazard_tune_factor_b2: float = 1.0
+    composition_bias_b3: str = "balanced"
+    ranged_bias_b3: str = "medium"
+    reinforcement_chance_b3: float = 0.15
+    hazard_tune_factor_b3: float = 1.0
+    composition_bias_b4: str = "balanced"
+    boss_pressure: str = "medium"
+    pacing_bias: str = "normal"
+    reinforcement_chance_b4: float = 0.15
+    hazard_tune_factor_b4: float = 1.0
+
+    @classmethod
+    def neutral_default(cls) -> EncounterDirectorSnapshot:
+        """STABLE-equivalent before any room-end classification."""
+        return cls()
+
+
 class AIDirector:
     """
     Reads PlayerModel state and stores deterministic difficulty-related outputs.
@@ -153,6 +185,29 @@ class AIDirector:
             self.pacing_bias = "normal"
             self.reinforcement_chance_b4 = 0.15
             self.hazard_tune_factor_b4 = 1.0
+
+    def capture_encounter_snapshot(self) -> EncounterDirectorSnapshot:
+        """Copy current outputs for encounter spawn (call after room-end classify only)."""
+        return EncounterDirectorSnapshot(
+            difficulty_modifier=float(self.difficulty_modifier),
+            enemy_adjustment=int(self.enemy_adjustment),
+            reinforcement_chance=float(self.reinforcement_chance),
+            composition_bias=str(self.composition_bias),
+            last_player_state_name=self.last_player_state_name,
+            pressure_level=str(self.pressure_level),
+            composition_bias_b2=str(self.composition_bias_b2),
+            reinforcement_chance_b2=float(self.reinforcement_chance_b2),
+            hazard_tune_factor_b2=float(self.hazard_tune_factor_b2),
+            composition_bias_b3=str(self.composition_bias_b3),
+            ranged_bias_b3=str(self.ranged_bias_b3),
+            reinforcement_chance_b3=float(self.reinforcement_chance_b3),
+            hazard_tune_factor_b3=float(self.hazard_tune_factor_b3),
+            composition_bias_b4=str(self.composition_bias_b4),
+            boss_pressure=str(self.boss_pressure),
+            pacing_bias=str(self.pacing_bias),
+            reinforcement_chance_b4=float(self.reinforcement_chance_b4),
+            hazard_tune_factor_b4=float(self.hazard_tune_factor_b4),
+        )
 
     def get_debug_state(self) -> dict[str, Any]:
         return {

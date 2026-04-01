@@ -81,7 +81,7 @@ ENEMY_MELEE_FLANKER_SEGMENT_REACH_PX = 8.0
 # Enemy melee attack hitbox radii/offsets and cooldowns (Biome 1).
 ENEMY_SWARM_ATTACK_RADIUS = 20.0
 ENEMY_SWARM_ATTACK_OFFSET = 20.0
-ENEMY_SWARM_ATTACK_COOLDOWN_SEC = 1.2
+ENEMY_SWARM_ATTACK_COOLDOWN_SEC = 1.0
 
 ENEMY_FLANKER_ATTACK_RADIUS = 17.0
 ENEMY_FLANKER_ATTACK_OFFSET = 18.0
@@ -89,7 +89,7 @@ ENEMY_FLANKER_ATTACK_COOLDOWN_SEC = 1.0
 
 ENEMY_BRUTE_ATTACK_RADIUS = 38.0
 ENEMY_BRUTE_ATTACK_OFFSET = 22.0
-ENEMY_BRUTE_ATTACK_COOLDOWN_SEC = 1.5
+ENEMY_BRUTE_ATTACK_COOLDOWN_SEC = 1.2
 
 ENEMY_HEAVY_ATTACK_RADIUS = 56.0
 ENEMY_HEAVY_ATTACK_OFFSET = 24.0
@@ -99,7 +99,7 @@ ENEMY_HEAVY_ATTACK_COOLDOWN_SEC = 1.7
 ENEMY_RANGED_SIZE = (72, 72)
 ENEMY_RANGED_BASE_HP = 28
 ENEMY_RANGED_BASE_DAMAGE = 8
-ENEMY_RANGED_MOVE_SPEED = 100
+ENEMY_RANGED_MOVE_SPEED = 60
 ENEMY_RANGED_ATTACK_COOLDOWN_SEC = 1.4
 RANGED_PROJECTILE_SPEED = 260
 RANGED_PROJECTILE_DAMAGE = 8
@@ -189,14 +189,22 @@ PLAYER_DASH_SPEED_MULT = 2.2
 PLAYER_DASH_DURATION_SEC = 0.18
 # Dash cooldown per Biome 1 spec (snappy via speed/animation, not cooldown hack).
 PLAYER_DASH_COOLDOWN_SEC = 0.90
-PLAYER_BASE_HP = 1000
-PLAYER_PARRY_WINDOW_SEC = 0.12
-PLAYER_BLOCK_DAMAGE_FACTOR = 0.5
+PLAYER_BASE_HP = 200  # Must equal PLAYER_MAX_HP_BY_LIFE[0] (first life).
+# Lives: remaining stock (3 → game starts; each fatal HP loss consumes one if >1 life left).
+PLAYER_LIVES_INITIAL = 3
+PLAYER_MAX_HP_BY_LIFE = (200, 100, 50)  # life_index 0, 1, 2
+PLAYER_RESPAWN_INVULN_SEC = 1.5
+# Visual delay before life-loss respawn (GameScene only; does not change lives/HP math).
+LIFE_LOSS_TRANSITION_SEC = 2.0
+LIFE_LOSS_FADE_IN_SEC = 0.75
+PLAYER_PARRY_WINDOW_SEC = 0.18  # ~11 frames @ 60 FPS; easier to test than 0.12s
+# Incoming damage multiplier while blocking (SRS: 60% damage reduction → take 40% of hit).
+PLAYER_BLOCK_DAMAGE_FACTOR = 0.4
 
 # --- Phase 4: Combat (player attacks, block/parry) ---
 # Player base attack damages (Biome 1 defaults).
-PLAYER_SHORT_ATTACK_DAMAGE = 10
-PLAYER_LONG_ATTACK_DAMAGE = 8
+PLAYER_SHORT_ATTACK_DAMAGE = 8
+PLAYER_LONG_ATTACK_DAMAGE = 14
 
 # Attack timings (sec) for Biome 1.
 PLAYER_SHORT_ATTACK_WINDUP_SEC = 0.12
@@ -204,11 +212,27 @@ PLAYER_SHORT_ATTACK_ACTIVE_SEC = 0.10
 PLAYER_SHORT_ATTACK_RECOVERY_SEC = 0.18
 
 PLAYER_LONG_ATTACK_WINDUP_SEC = 0.20
-PLAYER_LONG_ATTACK_COOLDOWN_SEC = 0.60
+# Enforced by Player.long_attack_cooldown_timer (independent of attack_long animation length / FPS).
+PLAYER_LONG_ATTACK_COOLDOWN_SEC = 0.1
 
-# Short attack melee range and long attack projectile range (px).
-PLAYER_SHORT_ATTACK_RANGE_PX = 48  # 1.5 tiles
-PLAYER_LONG_ATTACK_RANGE_PX = 192  # 6 tiles
+# Player melee: proximity radii from player center (px). Facing does not affect hits.
+PLAYER_SHORT_ATTACK_RANGE_PX = 48  # 1.5 tiles — smaller radius
+PLAYER_LONG_ATTACK_RANGE_PX = 192  # 6 tiles — larger radius
+
+# Temporary: log proximity hits / attack-while-moving (set False to silence).
+DEBUG_PLAYER_ATTACK_PROXIMITY = False
+# Verbose: walk+LMB trace (state at update end, draw, _set_state, GameScene short_req). Set False to silence.
+DEBUG_PLAYER_ATTACK_WALK_TRACE = False
+# One-shot frame trace: GameScene + Player + combat for WASD+LMB (set True only while debugging).
+DEBUG_PLAYER_ATTACK_INPUT_TRACE = False
+# Short-attack input buffer: log buffer / execute / consume (set True only while debugging).
+DEBUG_PLAYER_SHORT_ATTACK_BUFFER = False
+# Live gameplay trace: GameScene event/poll path + Player short attack (set True only while debugging).
+DEBUG_LIVE_SHORT_ATTACK_TRACE = False
+# Short attack (LMB) reliability: LMB event, short_req merge, Player receives, attack_short entered (set True only while debugging).
+DEBUG_SHORT_ATTACK_INPUT = False
+# Block/parry live audit: GameScene K/J, Player guard order, combat melee vs parry/block (set True only while debugging).
+DEBUG_BLOCK_PARRY_TRACE = False
 
 # Attack level scaling: +10% damage per level, max level handled later.
 PLAYER_ATTACK_LEVEL_STEP = 0.10
@@ -223,6 +247,9 @@ SPAWN_SLOT_DELAY_SEC = 0.4
 MIN_DISTANCE_FROM_PLAYER_PX = 150
 MIN_TILES_FROM_WALL = 3
 MIN_TILES_FROM_WALL_HEAVY = 6       # Large movement body: stay farther from wall band than standard spawns
+# Heavy spawn only: tile-center / padded search must stay ≥ this many tiles inside the playable floor from each wall.
+# Set to MIN+1 so the inflated clearance probe (80×80 + 2×HEAVY_CLEARANCE_PADDING_PX) is not tight against the wall band.
+SPAWN_HEAVY_WALL_TILE_MARGIN = MIN_TILES_FROM_WALL_HEAVY + 1
 MIN_TILES_FROM_CORNER_HEAVY = 4    # Heavy: wider corner exclusion (axis-aligned pocket avoidance)
 # General enemy spawn (spread / ambush / triangle): stay off edges and out of corner pockets
 SPAWN_EXTRA_INTERIOR_WALL_TILES = 3  # extra tiles inset from playable border (added to MIN_TILES_FROM_WALL)
@@ -235,28 +262,53 @@ SPAWN_MIN_NEIGHBOR_WALKABLE_HEAVY = 6
 SPAWN_DEBUG_LOG = False
 # Heavy-only spawn logs without enabling full SPAWN_DEBUG_LOG
 DEBUG_HEAVY_SPAWN = False
+# One-line audit: final Heavy position after SpawnSystem overlap nudge (set True to trace top-left / wall issues)
+DEBUG_HEAVY_SPAWN_AUDIT = False
 # Heavy movement / stuck diagnostics
 DEBUG_HEAVY_MOVE = False
+# Heavy clearance: log rejections (main vs fallback path) and movement footprint size
+DEBUG_HEAVY_CLEARANCE = False
 # Enemy melee registration (attack state + range vs damage applied)
 DEBUG_MELEE_HIT = False
+# When True, MetricsTracker.end_room prints one line with HP min/max/loss/result (console verification)
+DEBUG_ROOM_HP_METRICS_PRINT = False
+# When True: log boss HP bar ratio/fill width ~1/sec (game_scene).
+DEBUG_BOSS_HP_BAR = False
+# When True: console logs for Biome 3 Ranged spawn, list prune, room-clear checks (throttled).
+DEBUG_RANGED_ENEMY_LIFECYCLE = False
 MIN_TILES_FROM_DOOR = 3
 MIN_DISTANCE_BETWEEN_ENEMIES_PX = 90
 ELITE_EXTRA_SPACING_PX = 60
 MAX_SPAWN_ATTEMPTS = 60
+# Extra padding inside wall-margin band (tiles): sides/bottom; Heavy uses larger inset.
+SPAWN_EXTRA_EDGE_PADDING_TILES = 3
+SPAWN_EXTRA_EDGE_PADDING_TILES_HEAVY = 4
+# Extra rows below inner playable top (avoids buggy top wall rows)
+SPAWN_EXTRA_TOP_ROWS_TILES = 4
+# Random spawn tries in generate_valid_spawn_position (walkability + distance + overlap)
+SPAWN_RANDOM_VALIDATION_ATTEMPTS = 20
 # Safe spawn: when a position is invalid, try this many random nearby positions before falling back to nearest valid.
 SPAWN_VALIDATION_RETRY_NEARBY_ATTEMPTS = 10
 # Max tile offset for "nearby" retry (e.g. 3 = try positions within ±3 tiles).
 SPAWN_NEARBY_TILES_RADIUS = 3
-# Heavy unstuck: retreat away from obstacle cluster for this duration (0.5–0.8 s, deterministic)
-HEAVY_UNSTUCK_RETREAT_DURATION_SEC = 0.6
-# Heavy: time trying to move with near-zero displacement before marking stuck (0.5–0.8 s)
-HEAVY_STUCK_TIME_SEC = 0.6
-# Heavy clearance: inflate hitbox by this many px when testing if move is valid (avoid narrow gaps)
+# Heavy unstuck: retreat away from obstacle cluster for this duration (deterministic)
+HEAVY_UNSTUCK_RETREAT_DURATION_SEC = 0.3
+# Heavy: time trying to move with near-zero displacement before marking stuck (triggers retreat / anti-stuck)
+HEAVY_STUCK_TIME_SEC = 0.32
+# Heavy clearance: inflate hitbox by this many px when testing spawn validity (match GameScene probe)
 HEAVY_CLEARANCE_PADDING_PX = 12
+# Live chase only: tighter inflation than spawn so Heavy commits through gaps instead of zeroing velocity
+HEAVY_CLEARANCE_CHASE_PADDING_PX = 8
+# If no direction passes at chase padding, retry with max(3px, chase * mult) before last-resort direct @ 0
+HEAVY_CLEARANCE_DESPERATION_MULT = 0.5
 # Heavy spawn: minimum tile distance from solid props (blocked tiles); no spawn in this radius
 HEAVY_MIN_TILES_FROM_PROP = 2
-# Heavy obstacle avoidance: cache chosen reroute direction for this duration (0.4–0.8 s) to avoid jitter
-HEAVY_REROUTE_CACHE_SEC = 0.5
+# Heavy obstacle avoidance: cache chosen reroute direction for this duration (shorter = re-test direct toward player sooner)
+HEAVY_REROUTE_CACHE_SEC = 0.12
+# Blend toward player into unstuck retreat escape (reduces pure wall-axis escape)
+HEAVY_RETREAT_TOWARD_PLAYER_BLEND = 0.38
+# When a non-direct clearance direction wins, blend this much toward the player before moving (pressure > side-skate)
+HEAVY_CLEARANCE_NON_DIRECT_TOWARD_BLEND = 0.58
 AMBUSH_SPAWN_RADIUS_PX = 200
 TRIANGLE_OFFSET_PX = 80
 
@@ -299,6 +351,9 @@ HAZARD_SLOW_MAX_FRACTION = 0.10
 SAFE_ROOM_HEAL_PERCENT = 0.30
 SAFE_ROOM_OVERHEAL_CAP_RATIO = 1.30
 SAFE_ROOM_HEAL_MISSING_PERCENT = 0.30  # Legacy name for tests; Safe Room now uses HEAL_PERCENT + OVERHEAL_CAP
+# Reserve heal: excess healing banks exact HP leftovers (FIFO list, max entries); H consumes front slice.
+RESERVE_HEAL_POOL_MAX_ENTRIES = 3
+RESERVE_HEAL_USE_COOLDOWN_SEC = 0.4
 # Heal drop after combat clear: 25% chance (seeded).
 HEAL_DROP_CHANCE = 0.25
 # Room dimensions (tiles): (cols, rows). Start=16x16, Combat=12x12, etc.
@@ -339,10 +394,13 @@ BOSS_TELEGRAPH_LAVA_PHASE2 = 0.4
 BOSS_TELEGRAPH_TELEPORT_PHASE2 = 0.4
 BOSS_TELEGRAPH_METEOR_PHASE2 = 0.7
 BIOME4_BOSS_TELEGRAPH_METEOR_SEC = 1.0  # default for meteor trigger; phase-specific set by boss
-# Room 29: reserved screen area for boss HP/name UI (top center).
-BIOME4_BOSS_UI_ANCHOR_X = LOGICAL_W // 2 - 200
-BIOME4_BOSS_UI_ANCHOR_Y = 10
-BIOME4_BOSS_UI_ANCHOR_W = 400
+# Room 29 / boss HUD: narrow bar, placed below player HP row to avoid overlap (see GameScene.draw).
+BOSS_HUD_BAR_WIDTH = 320
+# Below player HP row + small banner strip; avoid overlap with outlined player HUD text.
+BOSS_HUD_BAR_TOP = 64
+BIOME4_BOSS_UI_ANCHOR_X = LOGICAL_W // 2 - BOSS_HUD_BAR_WIDTH // 2
+BIOME4_BOSS_UI_ANCHOR_Y = BOSS_HUD_BAR_TOP
+BIOME4_BOSS_UI_ANCHOR_W = BOSS_HUD_BAR_WIDTH
 BIOME4_BOSS_UI_ANCHOR_H = 60
 
 # --- Biome 4 Phase 3: Final Boss (Room 29) — relentless, hardest encounter ---
@@ -402,7 +460,7 @@ FINAL_BOSS_FINAL_DEATH_DELAY_SEC = 0.5
 FINAL_BOSS_HIT_FLINCH_SEC = 0.2
 
 # Testing: start dungeon from this room index instead of 0 (e.g. 0 = Biome 1, 8 = Biome 2, 16 = Biome 3).
-START_ROOM_INDEX = 0
+START_ROOM_INDEX = 21
 
 # --- Biome 1 Beginner Test Mode (promptforprompt/Biome1_Beginner_Test_Mode_Spec.md) ---
 # Temporary: fixed room order, reduced difficulty, deterministic. Set False to revert to normal.

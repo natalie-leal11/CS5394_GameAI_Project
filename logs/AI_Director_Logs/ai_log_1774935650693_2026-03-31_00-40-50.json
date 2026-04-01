@@ -1,0 +1,14 @@
+[
+  {
+    "seed": 1774935650693,
+    "room_index": 13,
+    "biome_index": 2,
+    "player_state": "STABLE",
+    "difficulty_modifier": 1.0,
+    "enemy_adjustment": 0,
+    "reinforcement_chance": 0.1,
+    "room_result": "clean_clear",
+    "hp_end": 93.76,
+    "damage_taken": 62.4
+  }
+]

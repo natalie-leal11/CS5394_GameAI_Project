@@ -1,0 +1,34 @@
+=== ROOM DETAIL ===
+room_index: 0
+biome_index: 1
+room_type: START
+
+=== HAZARDS ===
+room_index: 0
+lava_tiles: 0
+slow_tiles: 0
+hazard_pct: 0.000000
+
+=== RNG ===
+room_index: 0
+base_seed: 42
+derived_spawn_seed: 42
+derived_hazard_seed: N/A (hazards deterministic by biome_index + room_type)
+
+=== ROOM DETAIL ===
+room_index: 4
+biome_index: 1
+room_type: COMBAT
+
+=== HAZARDS ===
+room_index: 4
+lava_tiles: 8
+slow_tiles: 20
+hazard_pct: 0.046667
+
+=== RNG ===
+room_index: 4
+base_seed: 42
+derived_spawn_seed: 40042
+derived_hazard_seed: N/A (hazards deterministic by biome_index + room_type)
+

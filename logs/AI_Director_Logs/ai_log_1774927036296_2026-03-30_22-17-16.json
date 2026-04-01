@@ -1,0 +1,98 @@
+[
+  {
+    "seed": 1774927036296,
+    "room_index": 8,
+    "biome_index": 2,
+    "player_state": "STABLE",
+    "difficulty_modifier": 1.0,
+    "enemy_adjustment": 0,
+    "reinforcement_chance": 0.1,
+    "room_result": "clean_clear",
+    "hp_end": 97.4,
+    "damage_taken": 26.0
+  },
+  {
+    "seed": 1774927036296,
+    "room_index": 8,
+    "biome_index": 2,
+    "player_state": "STABLE",
+    "difficulty_modifier": 1.0,
+    "enemy_adjustment": 0,
+    "reinforcement_chance": 0.1,
+    "room_result": "clean_clear",
+    "hp_end": 97.4,
+    "damage_taken": 26.0
+  },
+  {
+    "seed": 1774927036296,
+    "room_index": 9,
+    "biome_index": 2,
+    "player_state": "DOMINATING",
+    "difficulty_modifier": 1.15,
+    "enemy_adjustment": 1,
+    "reinforcement_chance": 0.3,
+    "room_result": "clean_clear",
+    "hp_end": 96.51120000000002,
+    "damage_taken": 8.888
+  },
+  {
+    "seed": 1774927036296,
+    "room_index": 9,
+    "biome_index": 2,
+    "player_state": "DOMINATING",
+    "difficulty_modifier": 1.15,
+    "enemy_adjustment": 1,
+    "reinforcement_chance": 0.3,
+    "room_result": "clean_clear",
+    "hp_end": 96.51120000000002,
+    "damage_taken": 8.888
+  },
+  {
+    "seed": 1774927036296,
+    "room_index": 10,
+    "biome_index": 2,
+    "player_state": "DOMINATING",
+    "difficulty_modifier": 1.15,
+    "enemy_adjustment": 1,
+    "reinforcement_chance": 0.3,
+    "room_result": "clean_clear",
+    "hp_end": 94.91120000000001,
+    "damage_taken": 16.0
+  },
+  {
+    "seed": 1774927036296,
+    "room_index": 10,
+    "biome_index": 2,
+    "player_state": "DOMINATING",
+    "difficulty_modifier": 1.15,
+    "enemy_adjustment": 1,
+    "reinforcement_chance": 0.3,
+    "room_result": "clean_clear",
+    "hp_end": 94.91120000000001,
+    "damage_taken": 16.0
+  },
+  {
+    "seed": 1774927036296,
+    "room_index": 11,
+    "biome_index": 2,
+    "player_state": "DOMINATING",
+    "difficulty_modifier": 1.15,
+    "enemy_adjustment": 1,
+    "reinforcement_chance": 0.3,
+    "room_result": "clean_clear",
+    "hp_end": 123.11120000000001,
+    "damage_taken": 0.0
+  },
+  {
+    "seed": 1774927036296,
+    "room_index": 12,
+    "biome_index": 2,
+    "player_state": "DOMINATING",
+    "difficulty_modifier": 1.15,
+    "enemy_adjustment": 1,
+    "reinforcement_chance": 0.3,
+    "room_result": "clean_clear",
+    "hp_end": 118.11120000000001,
+    "damage_taken": 50.0
+  }
+]

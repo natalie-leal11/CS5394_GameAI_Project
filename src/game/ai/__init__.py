@@ -3,6 +3,7 @@
 from game.ai.ai_director import (
     AIDirector,
     EncounterDirective,
+    EncounterDirectorSnapshot,
     SafeRoomDirective,
     VariationDirective,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "AIDirector",
     "DifficultyParams",
     "EncounterDirective",
+    "EncounterDirectorSnapshot",
     "MetricsTracker",
     "PlayerClassificationResult",
     "PlayerModel",
