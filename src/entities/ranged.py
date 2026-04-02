@@ -104,9 +104,10 @@ class Ranged(EnemyBase):
         vx, vy = 0.0, 0.0
 
         if dist < RANGED_KITE_CLOSE_THRESHOLD:
-            # Too close: move away from player
-            vx = -nx * self.move_speed
-            vy = -ny * self.move_speed
+            # Too close: move away from player (slower than approach/strafe base for controlled retreat feel)
+            retreat_speed = self.move_speed * 0.5
+            vx = -nx * retreat_speed
+            vy = -ny * retreat_speed
             self._set_state("walk")
         elif dist > RANGED_KITE_FAR_THRESHOLD:
             # Too far: move toward player

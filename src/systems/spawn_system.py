@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import random
 from typing import List, Tuple, Type, Any, Optional
 
 import math
@@ -11,9 +12,34 @@ from game.config import (
     ENEMY_MAX_Y,
     SPAWN_TELEGRAPH_DURATION_SEC,
     DEBUG_MOVEMENT_HITBOX,
+    DEBUG_HEAVY_SPAWN_AUDIT,
+    DEBUG_RANGED_ENEMY_LIFECYCLE,
+    HEAVY_CLEARANCE_PADDING_PX,
+    SPAWN_HEAVY_WALL_TILE_MARGIN,
 )
+from game.config import enemy_movement_size_tuple
 from entities.enemy_base import enemy_movement_half_extents_for_class
+from systems.spawn_helper import ensure_valid_spawn_position
 from systems.vfx import VfxManager
+
+
+def _heavy_spawn_audit_log(room: Any, wx: float, wy: float, tag: str, extra: str = "") -> None:
+    """Runtime audit: why Heavy ended at this world position (enable DEBUG_HEAVY_SPAWN_AUDIT)."""
+    if not DEBUG_HEAVY_SPAWN_AUDIT or room is None:
+        return
+    mw, mh = enemy_movement_size_tuple("heavy")
+    pad = float(HEAVY_CLEARANCE_PADDING_PX)
+    full_w = mw + 2.0 * pad
+    full_h = mh + 2.0 * pad
+    tx, ty = room.tile_at_world(wx, wy)
+    b = room.wall_border()
+    minx, miny, maxx, maxy = room.playable_bounds_pixels()
+    print(
+        f"[HEAVY SPAWN AUDIT] {tag} tile=({tx},{ty}) world=({wx:.1f},{wy:.1f}) "
+        f"dist_from_playable_left={wx - minx:.1f} dist_from_playable_top={wy - miny:.1f} "
+        f"wall_border_b={b} movement={mw:.0f}x{mh:.0f} inflated_clearance={full_w:.0f}x{full_h:.0f} "
+        f"SPAWN_HEAVY_WALL_TILE_MARGIN={SPAWN_HEAVY_WALL_TILE_MARGIN} {extra}"
+    )
 
 
 @dataclass
@@ -118,8 +144,13 @@ class SpawnSystem:
         player,
         enemies: List,
         room: Optional[Any] = None,
+        *,
+        heavy_blocked_tiles: Optional[set] = None,
     ) -> None:
-        """Advance telegraphs and perform spawns when their timers elapse."""
+        """Advance telegraphs and perform spawns when their timers elapse.
+
+        heavy_blocked_tiles: Biome 4 solid prop tiles for Heavy re-validation after player-overlap nudge.
+        """
         if player is None:
             return
         self._time += dt
@@ -158,6 +189,7 @@ class SpawnSystem:
                 enemy = slot.enemy_cls((world_x, world_y), elite=slot.elite)
 
                 # Ensure no overlap with player; if overlapping, push enemy outward by 3 tiles.
+                overlap_nudged = False
                 enemy_rect = (
                     enemy.get_movement_hitbox_rect()
                     if hasattr(enemy, "get_movement_hitbox_rect")
@@ -169,6 +201,7 @@ class SpawnSystem:
                     else player_rect
                 )
                 if enemy_rect.colliderect(player_mrect):
+                    overlap_nudged = True
                     dx = world_x - px
                     dy = world_y - py
                     dist = math.hypot(dx, dy)
@@ -180,8 +213,49 @@ class SpawnSystem:
                     world_y = py + ny * shift
                     world_x, world_y = self._clamp_spawn_world(world_x, world_y, slot.enemy_cls, room)
                     enemy.world_pos = (world_x, world_y)
+                    if slot.enemy_cls.__name__ == "Heavy" and room is not None:
+                        _heavy_spawn_audit_log(
+                            room,
+                            world_x,
+                            world_y,
+                            "after_player_overlap_nudge",
+                            "spawn_helper_validation_was_bypassed_until_now",
+                        )
+
+                # Heavy: overlap fix only used playable clamp — re-run Heavy spawn validation (same as game_scene).
+                # Otherwise the nudge can park the 104×104 clearance box against the top/left wall (common if player is low-right).
+                if (
+                    overlap_nudged
+                    and slot.enemy_cls.__name__ == "Heavy"
+                    and room is not None
+                ):
+                    pre_x, pre_y = world_x, world_y
+                    existing = [(float(e.world_pos[0]), float(e.world_pos[1])) for e in enemies]
+                    world_x, world_y = ensure_valid_spawn_position(
+                        room,
+                        world_x,
+                        world_y,
+                        existing_positions=existing,
+                        rng=random.Random((int(pre_x) * 7919 + int(pre_y) * 104729) & 0x7FFFFFFF),
+                        for_heavy=True,
+                        blocked_tiles=heavy_blocked_tiles,
+                        enemy_type="heavy",
+                    )
+                    enemy.world_pos = (world_x, world_y)
+                    _heavy_spawn_audit_log(
+                        room,
+                        world_x,
+                        world_y,
+                        "after_heavy_revalidate_post_overlap",
+                        f"pre_revalidate=({pre_x:.1f},{pre_y:.1f})",
+                    )
 
                 enemies.append(enemy)
+                if DEBUG_RANGED_ENEMY_LIFECYCLE and slot.enemy_cls.__name__ == "Ranged":
+                    print(
+                        f"[RANGED LIFECYCLE] spawn+append cls=Ranged world=({world_x:.1f},{world_y:.1f}) "
+                        f"hp={getattr(enemy, 'hp', None)!r} inactive={getattr(enemy, 'inactive', None)}"
+                    )
                 # Play spawn portal VFX at the final spawn position (Biome 4 may use summon circle for elites).
                 self._vfx.spawn_portal((world_x, world_y), is_elite=slot.elite)
                 if DEBUG_MOVEMENT_HITBOX:

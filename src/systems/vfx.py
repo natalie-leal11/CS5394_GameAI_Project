@@ -244,6 +244,16 @@ class VfxManager:
         anim.set_animation(frames, fps=16, loop=False)
         self._instances.append(VfxInstance(world_pos, frames, anim, lifetime=0.25))
 
+    def spawn_parry_negation_feedback(
+        self,
+        world_pos: Tuple[float, float],
+        *,
+        text: str = "PARRY!",
+    ) -> None:
+        """Melee hit fully negated by parry: hit spark + bright cyan label (no project audio mixer yet)."""
+        self.spawn_hit_spark(world_pos)
+        self.spawn_floating_text((world_pos[0], world_pos[1] - 52), text, (120, 230, 255))
+
     def set_biome4_spawn_visuals(self, use: bool) -> None:
         """When True, use Biome 4 spawn portal/telegraph assets (rooms 24-29)."""
         self._use_biome4_spawn_visuals = use

@@ -32,9 +32,13 @@ class SceneManager:
 
     def switch_to_controls(self):
         self._current = self._controls_scene
+        if hasattr(self._controls_scene, "prepare_enter"):
+            self._controls_scene.prepare_enter()
 
     def switch_to_settings(self):
         self._current = self._settings_scene
+        if hasattr(self._settings_scene, "prepare_enter"):
+            self._settings_scene.prepare_enter()
 
     @property
     def current(self):

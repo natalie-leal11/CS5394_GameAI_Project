@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from game.config import DEBUG_ROOM_HP_METRICS_PRINT
+
 
 class RoomResult(str, Enum):
     clean_clear = "clean_clear"
@@ -342,16 +344,36 @@ class MetricsTracker:
         self.run.min_hp_during_room = float(hp_percent)
         _sync_run_from_room(self.run, r)
 
+    def record_player_hp_percent(self, hp_percent: float) -> None:
+        """
+        Call each frame (or after discrete HP changes) while a room is active.
+        Maintains min/max HP % during the room so end_room hp_lost_in_room and room_result are correct.
+        """
+        if self._room is None or not self._room.room_active_flag:
+            return
+        hp = float(hp_percent)
+        if hp < self._room.min_hp_during_room:
+            self._room.min_hp_during_room = hp
+        if hp > self._room.max_hp_during_room:
+            self._room.max_hp_during_room = hp
+        _sync_run_from_room(self.run, self._room)
+
     def end_room(self, hp_percent: float) -> None:
         if self._room is None or not self._room.room_active_flag:
             return
 
         now = self.run.run_elapsed_time
         room = self._room
+        # Fold exit HP into extrema so end_room is correct even if called in the same frame before record_player_hp_percent.
+        hp_end = float(hp_percent)
+        room.min_hp_during_room = min(room.min_hp_during_room, hp_end)
+        room.max_hp_during_room = max(room.max_hp_during_room, hp_end)
+        _sync_run_from_room(self.run, room)
+
         room.room_end_time = now
         dur = max(now - self._room_t0, 1e-9)
         room.room_clear_time = dur
-        room.hp_percent_end_room = float(hp_percent)
+        room.hp_percent_end_room = hp_end
         room.hp_lost_in_room = max(0.0, room.hp_percent_start_room - room.min_hp_during_room)
         room.hp_gained_in_room = room.healing_amount_collected
         room.damage_taken_rate = room.damage_taken_in_room / dur
@@ -393,6 +415,17 @@ class MetricsTracker:
 
         archived = copy.deepcopy(room)
         self.run.room_history.append(archived)
+
+        if DEBUG_ROOM_HP_METRICS_PRINT:
+            print(
+                "[ROOM HP METRICS] "
+                f"room_idx={room.current_room_index} "
+                f"hp_start={room.hp_percent_start_room:.2f} "
+                f"min={room.min_hp_during_room:.2f} max={room.max_hp_during_room:.2f} "
+                f"hp_end={room.hp_percent_end_room:.2f} "
+                f"hp_lost={room.hp_lost_in_room:.2f} "
+                f"result={room.room_result.value}"
+            )
 
         self.run.room_end_time = now
         self.run.room_clear_time = dur

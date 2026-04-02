@@ -107,7 +107,7 @@ def test_mini_boss_attack_state_damages_player():
     boss.state = "attack_01"
     boss.attack_cooldown_timer = 0.0
     boss.facing = (1.0, 0.0)
-    events = apply_enemy_attacks(player, [boss], 0.016)
+    events, _ = apply_enemy_attacks(player, [boss], 0.016)
     # If boss is in range and attack state, may produce event
     assert isinstance(events, list)
     if events:
@@ -133,13 +133,13 @@ def test_mini_boss_attack_cooldown_respected():
     boss.attack_cooldown_timer = 0.0
     player = DummyPlayer()
     initial_hp = player.hp
-    events1 = apply_enemy_attacks(player, [boss], dt=0.1)
+    events1, _ = apply_enemy_attacks(player, [boss], dt=0.1)
     if events1:
         assert player.hp < initial_hp
     # Immediately after, cooldown should be set
     assert boss.attack_cooldown_timer > 0.0
     # Same frame or next frame with no dt, no second hit (cooldown blocks)
-    events2 = apply_enemy_attacks(player, [boss], dt=0.01)
+    events2, _ = apply_enemy_attacks(player, [boss], dt=0.01)
     # Either no second event or cooldown prevented another hit
     assert boss.attack_cooldown_timer > 0.0
 

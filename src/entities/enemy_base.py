@@ -9,8 +9,10 @@ from game.config import (
     enemy_movement_size_tuple,
     PROJECT_ROOT,
     HEAVY_UNSTUCK_RETREAT_DURATION_SEC,
-    HEAVY_CLEARANCE_PADDING_PX,
+    HEAVY_CLEARANCE_CHASE_PADDING_PX,
+    HEAVY_CLEARANCE_DESPERATION_MULT,
     HEAVY_REROUTE_CACHE_SEC,
+    HEAVY_CLEARANCE_NON_DIRECT_TOWARD_BLEND,
     HEAVY_STUCK_TIME_SEC,
     ENEMY_SWARM_SIZE,
     ENEMY_FLANKER_SIZE,
@@ -62,6 +64,7 @@ from game.config import (
     ENEMY_HEAVY_ATTACK_OFFSET,
     ENEMY_HEAVY_ATTACK_COOLDOWN_SEC,
     DEBUG_HEAVY_MOVE,
+    DEBUG_HEAVY_CLEARANCE,
 )
 from game.asset_loader import load_animation, load_image
 from systems.animation import AnimationState
@@ -560,26 +563,38 @@ class EnemyBase:
                 else:
                     vx, vy = apply_anti_stuck_velocity(self, vx, vy)
 
-        # Heavy: deterministic obstacle avoidance — try direct, then slide X, slide Y, perpendiculars; cache reroute
+        # Heavy: deterministic obstacle avoidance — try direct, then slide X, slide Y, perpendiculars; cache reroute.
+        # Uses HEAVY_CLEARANCE_CHASE_PADDING_PX (tighter than spawn) + desperation passes so we rarely zero velocity while chasing.
         if (
             self.enemy_type == "heavy"
             and callable(heavy_clearance_cb)
             and dist > engage_dist
             and getattr(self, "_unstuck_retreat_timer", 0) <= 0
         ):
-            w, h = self.movement_size
-            padding = HEAVY_CLEARANCE_PADDING_PX
+            mw, mh = self.movement_size
+            padding_chase = float(HEAVY_CLEARANCE_CHASE_PADDING_PX)
+            padding_pass2 = max(3.0, padding_chase * float(HEAVY_CLEARANCE_DESPERATION_MULT))
 
-            def _check_direction(ux: float, uy: float) -> bool:
-                next_rect = pygame.Rect(x + ux * self.move_speed * dt - w / 2, y + uy * self.move_speed * dt - h / 2, w, h)
-                return heavy_clearance_cb(next_rect, padding)
+            def _check_pad(ux: float, uy: float, pad_px: float) -> bool:
+                next_rect = pygame.Rect(
+                    x + ux * self.move_speed * dt - mw / 2,
+                    y + uy * self.move_speed * dt - mh / 2,
+                    mw,
+                    mh,
+                )
+                return heavy_clearance_cb(next_rect, pad_px)
 
-            # 1) If cached reroute still valid, use it to avoid jitter
+            # 1) If cached reroute still valid, use it (retry with looser padding if needed)
             reroute_timer = getattr(self, "_heavy_reroute_timer", 0.0)
             reroute_dir = getattr(self, "_heavy_reroute_direction", None)
             if reroute_timer > 0 and reroute_dir is not None:
                 ux, uy = reroute_dir
-                if _check_direction(ux, uy):
+                reroute_ok = False
+                for pad_try in (padding_chase, padding_pass2, 0.0):
+                    if _check_pad(ux, uy, pad_try):
+                        reroute_ok = True
+                        break
+                if reroute_ok:
                     vx = ux * self.move_speed
                     vy = uy * self.move_speed
                     self.facing = (ux, uy)
@@ -589,7 +604,7 @@ class EnemyBase:
                     self._heavy_reroute_direction = None
                     reroute_dir = None
 
-            # 2) If no cached reroute, try candidates in deterministic order
+            # 2) If no cached reroute, try candidates in deterministic order at chase → desperation → direct@0
             if reroute_dir is None or reroute_timer <= 0:
                 nx_val = dx / dist if dist > 1e-3 else 1.0
                 ny_val = dy / dist if dist > 1e-3 else 0.0
@@ -605,28 +620,74 @@ class EnemyBase:
                     perp_r,
                 ]
                 chosen = None
-                for (ux, uy) in candidates:
-                    if _check_direction(ux, uy):
-                        chosen = (ux, uy)
+                chosen_pad = padding_chase
+                for pad_try in (padding_chase, padding_pass2):
+                    for (ux, uy) in candidates:
+                        if _check_pad(ux, uy, pad_try):
+                            chosen = (ux, uy)
+                            chosen_pad = pad_try
+                            break
+                    if chosen is not None:
                         break
+                if chosen is None and _check_pad(nx_val, ny_val, 0.0):
+                    chosen = (nx_val, ny_val)
+                    chosen_pad = 0.0
                 if chosen is not None:
                     ux, uy = chosen
+                    chosen_is_direct = abs(ux - nx_val) < 1e-5 and abs(uy - ny_val) < 1e-5
+                    if not chosen_is_direct:
+                        blend_w = float(HEAVY_CLEARANCE_NON_DIRECT_TOWARD_BLEND)
+                        bx = (1.0 - blend_w) * ux + blend_w * nx_val
+                        by = (1.0 - blend_w) * uy + blend_w * ny_val
+                        bn = math.hypot(bx, by)
+                        if bn > 1e-6:
+                            bx, by = bx / bn, by / bn
+                            blended = False
+                            for pad_try in (chosen_pad, padding_pass2, 0.0):
+                                if _check_pad(bx, by, pad_try):
+                                    ux, uy = bx, by
+                                    chosen_pad = pad_try
+                                    blended = True
+                                    break
+                            if not blended:
+                                pass
                     vx = ux * self.move_speed
                     vy = uy * self.move_speed
                     self.facing = (ux, uy)
                     self._set_state("walk")
-                    is_direct = abs(ux - nx_val) < 1e-5 and abs(uy - ny_val) < 1e-5
-                    if not is_direct:
+                    if not chosen_is_direct:
                         self._heavy_reroute_timer = HEAVY_REROUTE_CACHE_SEC
                         self._heavy_reroute_direction = (ux, uy)
                 else:
                     vx = vy = 0.0
+                    if DEBUG_HEAVY_CLEARANCE:
+                        print(
+                            "[HEAVY CLEARANCE] reject path=main_candidates "
+                            f"size=({mw},{mh}) chase_pad={padding_chase}px pass2={padding_pass2:.1f} "
+                            f"pos=({x:.1f},{y:.1f}) (all directions blocked at all pads)"
+                        )
         else:
-            # Non-Heavy or no callback: single clearance check for Heavy (reject blocked)
+            # Heavy during retreat / no multi-candidate pass: single clearance using movement hitbox
+            # (same footprint as main Heavy path and _resolve_entity_wall_collision; not sprite size).
             if self.enemy_type == "heavy" and callable(heavy_clearance_cb) and (vx * vx + vy * vy) > 1e-6:
-                w, h = self.size
-                next_rect = pygame.Rect(x + vx * dt - w / 2, y + vy * dt - h / 2, w, h)
-                if not heavy_clearance_cb(next_rect, HEAVY_CLEARANCE_PADDING_PX):
+                mw, mh = self.movement_size
+                next_rect = pygame.Rect(x + vx * dt - mw / 2, y + vy * dt - mh / 2, mw, mh)
+                ok_move = False
+                for pad_try in (
+                    float(HEAVY_CLEARANCE_CHASE_PADDING_PX),
+                    max(3.0, float(HEAVY_CLEARANCE_CHASE_PADDING_PX) * float(HEAVY_CLEARANCE_DESPERATION_MULT)),
+                    0.0,
+                ):
+                    if heavy_clearance_cb(next_rect, pad_try):
+                        ok_move = True
+                        break
+                if not ok_move:
+                    if DEBUG_HEAVY_CLEARANCE:
+                        print(
+                            "[HEAVY CLEARANCE] reject path=fallback "
+                            f"size=({mw},{mh}) pad_tried up to chase/desperation/0 "
+                            f"pos=({x:.1f},{y:.1f}) vel=({vx:.1f},{vy:.1f})"
+                        )
                     vx = vy = 0.0
 
         self.velocity_xy = (vx, vy)

@@ -4,12 +4,15 @@ from typing import List
 
 import pygame
 
+from entities.biome3_miniboss import Biome3MiniBoss
+from entities.final_boss import FinalBoss
+from entities.mini_boss import MiniBoss
+from entities.mini_boss_2 import MiniBoss2
 from game.config import (
     PLAYER_SHORT_ATTACK_DAMAGE,
     PLAYER_LONG_ATTACK_DAMAGE,
     PLAYER_SHORT_ATTACK_RANGE_PX,
     PLAYER_LONG_ATTACK_RANGE_PX,
-    PLAYER_LONG_ATTACK_WINDUP_SEC,
     PLAYER_BLOCK_DAMAGE_FACTOR,
     DEBUG_COMBAT_HITS,
     ENEMY_HIT_ZONE_RADIUS,
@@ -28,7 +31,6 @@ from game.config import (
     MINI_BOSS_ATTACK_RADIUS,
     MINI_BOSS_ATTACK_OFFSET,
     MINI_BOSS_ATTACK_COOLDOWN_SEC,
-    PLAYER_SIZE,
     PLAYER_HITBOX_W,
     PLAYER_HITBOX_H,
     FINAL_BOSS_ATTACK_RADIUS,
@@ -48,9 +50,39 @@ from game.config import (
     MINI_BOSS_MELEE_ARC_BONUS_PX,
     ENEMY_MELEE_BODY_EXTRA_UNIVERSAL_PX,
     DEBUG_MELEE_HIT,
+    DEBUG_PLAYER_ATTACK_PROXIMITY,
+    DEBUG_BLOCK_PARRY_TRACE,
 )
 
 _MINI_BOSS_MELEE_TYPES = frozenset({"mini_boss", "mini_boss_2", "mini_boss_3"})
+
+# Post-hit retaliation delay: shorter for boss entity classes (instance checks).
+_POST_HIT_COOLDOWN_BOSS_CLASSES = (MiniBoss, MiniBoss2, Biome3MiniBoss, FinalBoss)
+
+
+def _apply_post_hit_attack_cooldown(enemy, *, is_long_attack: bool) -> None:
+    """
+    After player damage, ensure enemy cannot melee/ranged-fire immediately.
+    Uses max() so a longer existing attack_cooldown_timer is never shortened.
+    """
+    if not hasattr(enemy, "attack_cooldown_timer"):
+        return
+    if isinstance(enemy, _POST_HIT_COOLDOWN_BOSS_CLASSES):
+        hit_cd = 0.35 if is_long_attack else 0.2
+    else:
+        hit_cd = 0.6 if is_long_attack else 0.4
+    cur = float(getattr(enemy, "attack_cooldown_timer", 0.0))
+    enemy.attack_cooldown_timer = max(cur, hit_cd)
+
+# One-shot: print configured proximity radii when player attacks resolve.
+_PLAYER_ATTACK_PROXIMITY_RADII_PRINTED = False
+
+
+def _distance_point_to_rect(px: float, py: float, rect: pygame.Rect) -> float:
+    """Distance from point to axis-aligned rect (0 if point is inside)."""
+    cx = max(rect.left, min(px, rect.right))
+    cy = max(rect.top, min(py, rect.bottom))
+    return math.hypot(px - cx, py - cy)
 
 
 @dataclass
@@ -206,80 +238,36 @@ def _enemy_melee_player_in_range(
 
 def apply_player_attacks(player, enemies: list) -> List[DamageEvent]:
     """
-    Resolve player short/long attacks using directional rectangular hitboxes.
+    Resolve player short/long attacks using proximity radii from the player center.
 
-    - Short attack: close, wide, forgiving rectangle directly in front of player.
-    - Long attack: long, thinner rectangle directly in front of player.
-    - Damage is applied IFF attack_rect.colliderect(enemy_hurtbox_rect).
-    - Each enemy can only be hit once per short-attack swing.
+    Damage does not depend on facing direction (animations still do). Each enemy must be
+    within the configured radius of the player position to the enemy hurtbox (closest-point
+    distance). Short uses a smaller radius than long. Short: one hit per enemy per swing.
+    Long: one damage resolution per swing (should_fire_long_attack).
     """
+    global _PLAYER_ATTACK_PROXIMITY_RADII_PRINTED
     events: List[DamageEvent] = []
+
+    if DEBUG_PLAYER_ATTACK_PROXIMITY and not _PLAYER_ATTACK_PROXIMITY_RADII_PRINTED:
+        _PLAYER_ATTACK_PROXIMITY_RADII_PRINTED = True
+        print(
+            f"[COMBAT] Player attack radii (proximity, facing-independent): "
+            f"short={PLAYER_SHORT_ATTACK_RANGE_PX}px, long={PLAYER_LONG_ATTACK_RANGE_PX}px"
+        )
 
     px = float(getattr(player, "world_pos", (0, 0))[0])
     py = float(getattr(player, "world_pos", (0, 0))[1])
     mult = player.attack_multiplier
 
-    # Player sprite rect from world_pos and configured size (authoritative).
-    pw, ph = PLAYER_SIZE
-    player_rect = pygame.Rect(int(px - pw / 2), int(py - ph / 2), pw, ph)
-
-    def _player_dir() -> str:
-        """Map player's facing vector to one of up/down/left/right.
-
-        Prefer the continuous facing vector (used in tests), and fall back to the
-        discrete _facing_dir only when the vector is zero.
-        """
-        fx, fy = getattr(player, "facing", (1.0, 0.0))
-        if fx != 0.0 or fy != 0.0:
-            if abs(fx) >= abs(fy):
-                return "right" if fx > 0 else "left"
-            return "down" if fy > 0 else "up"
-        d = getattr(player, "_facing_dir", None)
-        if d in ("up", "down", "left", "right"):
-            return d
-        return "right"
-
-    # Reset debug attack rects for this frame.
     setattr(player, "_debug_short_attack_rect", None)
     setattr(player, "_debug_long_attack_rect", None)
 
-    # Short attack: directional rectangle in front of the player. One hit per enemy per swing.
-    # Be generous for gameplay: keep the hitbox active for the entire short-attack state
-    # instead of a narrow timer window to avoid whiffing due to frame-perfect timing.
-    if getattr(player, "state", None) == "attack_short":
-        dir_tag = _player_dir()
-        reach = PLAYER_SHORT_ATTACK_RANGE_PX  # 48px forward
-        thickness = 70  # 70px wide
-        if dir_tag == "right":
-            attack_rect = pygame.Rect(
-                player_rect.right,
-                player_rect.centery - thickness // 2,
-                reach,
-                thickness,
-            )
-        elif dir_tag == "left":
-            attack_rect = pygame.Rect(
-                player_rect.left - reach,
-                player_rect.centery - thickness // 2,
-                reach,
-                thickness,
-            )
-        elif dir_tag == "up":
-            attack_rect = pygame.Rect(
-                player_rect.centerx - thickness // 2,
-                player_rect.top - reach,
-                thickness,
-                reach,
-            )
-        else:  # "down"
-            attack_rect = pygame.Rect(
-                player_rect.centerx - thickness // 2,
-                player_rect.bottom,
-                thickness,
-                reach,
-            )
-        setattr(player, "_debug_short_attack_rect", attack_rect.copy())
+    short_r = float(PLAYER_SHORT_ATTACK_RANGE_PX)
+    long_r = float(PLAYER_LONG_ATTACK_RANGE_PX)
 
+    # Short attack: entire attack_short state — proximity ring, one hit per enemy per swing.
+    if getattr(player, "state", None) == "attack_short":
+        short_hits: list[str] = []
         for enemy in enemies:
             if getattr(enemy, "inactive", False):
                 continue
@@ -288,17 +276,19 @@ def apply_player_attacks(player, enemies: list) -> List[DamageEvent]:
             if not player.can_hit_enemy_with_short(enemy):
                 continue
             hurtbox = _enemy_hurtbox_rect(enemy)
-            if not attack_rect.colliderect(hurtbox):
+            if _distance_point_to_rect(px, py, hurtbox) > short_r:
                 continue
             damage = float(PLAYER_SHORT_ATTACK_DAMAGE * mult)
             new_hp = float(getattr(enemy, "hp", 0.0)) - damage
             enemy.hp = max(0.0, new_hp)
             if enemy.hp <= 0.0 and hasattr(enemy, "_set_state"):
                 enemy._set_state("death")
-            # Final boss: do not set state to "hit" (stagger resistance); damage_flash_timer is visual only.
             if hasattr(enemy, "damage_flash_timer"):
                 enemy.damage_flash_timer = 0.15
+            _apply_post_hit_attack_cooldown(enemy, is_long_attack=False)
             player.register_short_attack_hit(enemy)
+            et = getattr(enemy, "enemy_type", type(enemy).__name__)
+            short_hits.append(str(et))
             events.append(
                 DamageEvent(
                     target=enemy,
@@ -309,62 +299,37 @@ def apply_player_attacks(player, enemies: list) -> List[DamageEvent]:
                 )
             )
             if DEBUG_COMBAT_HITS:
-                et = getattr(enemy, "enemy_type", type(enemy).__name__)
                 print(
                     f"[COMBAT] HIT {et} player_short -{damage:.1f} "
                     f"hp={float(getattr(enemy, 'hp', 0.0)):.1f}"
                 )
+        if DEBUG_PLAYER_ATTACK_PROXIMITY and short_hits:
+            print(
+                f"[COMBAT] player_short hits (proximity, facing-independent): "
+                f"radius={short_r}px, enemies={short_hits}"
+            )
 
-    # Long attack: directional rectangle in front of the player. Triggered once per swing.
+    # Long attack: once per swing — larger proximity ring.
     if getattr(player, "should_fire_long_attack", None) is not None and player.should_fire_long_attack():
-        dir_tag = _player_dir()
-        length = PLAYER_LONG_ATTACK_RANGE_PX  # 192px forward
-        thickness = 50  # 50px wide
-        if dir_tag == "right":
-            attack_rect = pygame.Rect(
-                player_rect.right,
-                player_rect.centery - thickness // 2,
-                length,
-                thickness,
-            )
-        elif dir_tag == "left":
-            attack_rect = pygame.Rect(
-                player_rect.left - length,
-                player_rect.centery - thickness // 2,
-                length,
-                thickness,
-            )
-        elif dir_tag == "up":
-            attack_rect = pygame.Rect(
-                player_rect.centerx - thickness // 2,
-                player_rect.top - length,
-                thickness,
-                length,
-            )
-        else:  # "down"
-            attack_rect = pygame.Rect(
-                player_rect.centerx - thickness // 2,
-                player_rect.bottom,
-                thickness,
-                length,
-            )
-
+        long_hits: list[str] = []
         for enemy in enemies:
             if getattr(enemy, "inactive", False):
                 continue
             if getattr(enemy, "enemy_type", None) == "final_boss" and (getattr(enemy, "_revive_invuln_timer", 0) > 0 or getattr(enemy, "state", None) == "revive_wait"):
                 continue
             hurtbox = _enemy_hurtbox_rect(enemy)
-            if not attack_rect.colliderect(hurtbox):
+            if _distance_point_to_rect(px, py, hurtbox) > long_r:
                 continue
             damage = float(PLAYER_LONG_ATTACK_DAMAGE * mult)
             new_hp = float(getattr(enemy, "hp", 0.0)) - damage
             enemy.hp = max(0.0, new_hp)
             if enemy.hp <= 0.0 and hasattr(enemy, "_set_state"):
                 enemy._set_state("death")
-            # Final boss: do not set state to "hit" (stagger resistance); damage_flash_timer is visual only.
             if hasattr(enemy, "damage_flash_timer"):
                 enemy.damage_flash_timer = 0.15
+            _apply_post_hit_attack_cooldown(enemy, is_long_attack=True)
+            et = getattr(enemy, "enemy_type", type(enemy).__name__)
+            long_hits.append(str(et))
             events.append(
                 DamageEvent(
                     target=enemy,
@@ -375,26 +340,45 @@ def apply_player_attacks(player, enemies: list) -> List[DamageEvent]:
                 )
             )
             if DEBUG_COMBAT_HITS:
-                et = getattr(enemy, "enemy_type", type(enemy).__name__)
                 print(
                     f"[COMBAT] HIT {et} player_long -{damage:.1f} "
                     f"hp={float(getattr(enemy, 'hp', 0.0)):.1f}"
                 )
+        if DEBUG_PLAYER_ATTACK_PROXIMITY and long_hits:
+            print(
+                f"[COMBAT] player_long hits (proximity, facing-independent): "
+                f"radius={long_r}px, enemies={long_hits}"
+            )
 
     return events
 
 
-def apply_enemy_attacks(player, enemies: list, dt: float) -> List[DamageEvent]:
+def _player_is_invulnerable(player) -> bool:
+    """True during post-respawn i-frames (no HP loss)."""
+    return float(getattr(player, "invulnerable_timer", 0.0)) > 0.0
+
+
+def apply_enemy_attacks(player, enemies: list, dt: float) -> tuple[List[DamageEvent], int]:
     """
     Resolve enemy melee attacks against player.
     - Uses per-type radius/offset and cooldown from config.
     - Standard melee: forgiving hitbox-vs-arc + close body fallback; bosses unchanged (center vs arc).
     - Honors player block/parry: parry negates, block scales damage.
+    Returns (damage events, count of melee hits fully negated by parry) for VFX/feedback.
     """
     events: List[DamageEvent] = []
+    melee_parry_negations = 0
     px, py = player.world_pos
     is_blocking = getattr(player, "is_blocking", lambda: False)()
     parry_active = getattr(player, "is_parry_active", lambda: False)()
+    p_state = getattr(player, "state", "")
+    p_parry_t = float(getattr(player, "parry_window_timer", 0.0))
+    if DEBUG_BLOCK_PARRY_TRACE:
+        print(
+            f"[BLOCK_PARRY_TRACE] apply_enemy_attacks snapshot "
+            f"player.state={p_state!r} is_blocking={is_blocking} is_parry_active={parry_active} "
+            f"parry_window_timer={p_parry_t:.4f}"
+        )
 
     for enemy in enemies:
         if getattr(enemy, "inactive", False):
@@ -420,17 +404,34 @@ def apply_enemy_attacks(player, enemies: list, dt: float) -> List[DamageEvent]:
                     f"[HIT DEBUG] enemy={enemy_type} state={state} in_range=False damage_applied=False"
                 )
             continue
+        if DEBUG_BLOCK_PARRY_TRACE:
+            print(
+                f"[BLOCK_PARRY_TRACE] melee hit collision enemy={enemy_type} atk_state={state!r} "
+                f"player.state={getattr(player, 'state', '')!r} parry_timer={float(getattr(player, 'parry_window_timer', 0.0)):.4f}"
+            )
         enemy.attack_cooldown_timer = cooldown
         if enemy_type == "final_boss" and getattr(enemy, "_teleport_strike_damage_frame", False):
             setattr(enemy, "_teleport_strike_damage_frame", False)
         if parry_active:
+            melee_parry_negations += 1
+            if DEBUG_BLOCK_PARRY_TRACE:
+                print(
+                    f"[BLOCK_PARRY_TRACE] parry NEGATES dmg (no HP change) raw_enemy_dmg={getattr(enemy, 'damage', 0.0)}"
+                )
             if DEBUG_MELEE_HIT:
                 print(
                     f"[HIT DEBUG] enemy={enemy_type} state={state} in_range=True damage_applied=False"
                 )
             continue
+        if _player_is_invulnerable(player):
+            continue
         dmg = getattr(enemy, "damage", 0.0)
         if is_blocking:
+            if DEBUG_BLOCK_PARRY_TRACE:
+                print(
+                    f"[BLOCK_PARRY_TRACE] block applies factor={PLAYER_BLOCK_DAMAGE_FACTOR} "
+                    f"raw_dmg={dmg} -> scaled={dmg * PLAYER_BLOCK_DAMAGE_FACTOR}"
+                )
             dmg *= PLAYER_BLOCK_DAMAGE_FACTOR
         dmg *= getattr(player, "damage_taken_mult", 1.0)
         if dmg <= 0:
@@ -456,7 +457,7 @@ def apply_enemy_attacks(player, enemies: list, dt: float) -> List[DamageEvent]:
                 f"[HIT DEBUG] enemy={enemy_type} state={state} in_range=True damage_applied=True"
             )
 
-    return events
+    return events, melee_parry_negations
 
 
 def apply_projectile_hits(player, projectiles: list) -> List[DamageEvent]:
@@ -467,6 +468,8 @@ def apply_projectile_hits(player, projectiles: list) -> List[DamageEvent]:
         if getattr(proj, "inactive", True):
             continue
         if not player_rect.colliderect(proj.get_hitbox_rect()):
+            continue
+        if _player_is_invulnerable(player):
             continue
         proj.inactive = True
         dmg = getattr(proj, "damage", 0.0)

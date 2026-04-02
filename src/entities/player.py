@@ -12,6 +12,8 @@ from game.config import (
     PLAYER_MOVEMENT_HITBOX_W,
     PLAYER_MOVEMENT_HITBOX_H,
     PLAYER_BASE_HP,
+    RESERVE_HEAL_POOL_MAX_ENTRIES,
+    RESERVE_HEAL_USE_COOLDOWN_SEC,
     PLAYER_PARRY_WINDOW_SEC,
     PLAYER_DASH_DURATION_SEC,
     PLAYER_SHORT_ATTACK_DAMAGE,
@@ -19,10 +21,19 @@ from game.config import (
     PLAYER_SHORT_ATTACK_WINDUP_SEC,
     PLAYER_SHORT_ATTACK_ACTIVE_SEC,
     PLAYER_LONG_ATTACK_WINDUP_SEC,
+    PLAYER_LONG_ATTACK_COOLDOWN_SEC,
     PLAYER_SHORT_ATTACK_RANGE_PX,
     PLAYER_LONG_ATTACK_RANGE_PX,
     PLAYER_ATTACK_LEVEL_STEP,
+    PLAYER_LIVES_INITIAL,
     PROJECT_ROOT,
+    DEBUG_PLAYER_ATTACK_PROXIMITY,
+    DEBUG_PLAYER_ATTACK_WALK_TRACE,
+    DEBUG_PLAYER_ATTACK_INPUT_TRACE,
+    DEBUG_PLAYER_SHORT_ATTACK_BUFFER,
+    DEBUG_LIVE_SHORT_ATTACK_TRACE,
+    DEBUG_BLOCK_PARRY_TRACE,
+    DEBUG_SHORT_ATTACK_INPUT,
 )
 from game.asset_loader import load_animation
 from systems.animation import AnimationState
@@ -40,12 +51,12 @@ PLAYER_STATES = (
     "death",
 )
 
-# (fps, loop) per state. Master: attack_short 4f 10fps, attack_long 6f 10fps, dash 2-3f 12fps.
+# (fps, loop) per state. Short attack stays snappy (10fps); long is slower/heavier (7fps).
 ANIM_SPECS = {
     "idle": (10, True),
     "walk": (10, True),
     "attack_short": (10, False),
-    "attack_long": (10, False),
+    "attack_long": (7, False),
     "dash": (12, False),
     "block": (10, True),
     "parry": (10, True),
@@ -58,12 +69,22 @@ PLAYER_ASSET_BASE = "assets/entities/player"
 # assets/entities/player/directional/idle, walk_<dir>, attack_<dir>
 PLAYER_DIRECTIONAL_BASE = os.path.join(PLAYER_ASSET_BASE, "directional")
 FACING_DIRS = ("up", "down", "left", "right")
+# One-shot debug after directional attack folders are resolved (see _load_directional_animations).
+_DIRECTIONAL_ATTACK_SETS_DEBUG_PRINTED = False
+# One-shot: attack FPS + long cooldown enforcement (see _ensure_animations_loaded).
+_ATTACK_TIMING_DEBUG_PRINTED = False
 # Colorkey: white so sprite background and jagged white outline are transparent
 PLAYER_COLORKEY_BG = (255, 255, 255)
 # Pixels with R,G,B >= this become transparent (removes antialiased white edges)
 PLAYER_NEAR_WHITE_THRESHOLD = 245
 # Pixels near the top-left corner color become transparent (removes blue/teal or any solid bg)
 PLAYER_CORNER_BG_TOLERANCE = 50
+
+_MOVEMENT_KEYS = frozenset({pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d})
+
+
+def _player_has_movement_keys(keys_pressed: set[int]) -> bool:
+    return bool(keys_pressed & _MOVEMENT_KEYS)
 
 
 class Player:
@@ -74,6 +95,12 @@ class Player:
         self.hp = float(PLAYER_BASE_HP)
         self.base_max_hp = float(PLAYER_BASE_HP)  # Increased by Biome 3 Safe Room Health upgrade
         self.max_hp = float(PLAYER_BASE_HP)       # Current max HP (cap for overheal)
+        self.lives = int(PLAYER_LIVES_INITIAL)
+        self.life_index = 0
+        self.invulnerable_timer: float = 0.0
+        # Banked heals: FIFO list of exact leftover HP from overheal; H consumes from front (see try_consume_reserve_heal).
+        self.reserve_heal_pool: list[float] = []
+        self.reserve_heal_cooldown_timer: float = 0.0
         self.inactive = False
         self.velocity_xy = (0.0, 0.0)
         # Attack stats / scaling
@@ -87,7 +114,7 @@ class Player:
         self.dash_timer = 0.0
         self.dash_cooldown_timer = 0.0
         self.dash_direction = (1, 0)
-        # Parry (K key): 120ms window when K is pressed
+        # Parry (K key): PLAYER_PARRY_WINDOW_SEC window when K is pressed
         self.parry_window_timer = 0.0
         # Avoid idle/walk flicker: only switch to idle after still for this long (sec)
         self._still_timer = 0.0
@@ -101,6 +128,8 @@ class Player:
         self._short_attack_hit_ids: set[int] = set()
         self._long_attack_timer = 0.0
         self._long_attack_fired = False
+        # Real gameplay cooldown for long attack (independent of animation length).
+        self.long_attack_cooldown_timer = 0.0
         # One visible frame for idle (Requirements: player visible when idle at all times).
         self._idle_surface: pygame.Surface | None = None
         # Directional animations (per facing dir); populated if directional assets exist.
@@ -110,6 +139,49 @@ class Player:
         self._current_anim_key: tuple[str, str | None] | None = None
         # Damage feedback: brief red flash when hit.
         self.damage_flash_timer: float = 0.0
+        # Buffered short attack: click while locked (attack_short/dash/hit/death) is held until we can swing once.
+        self._pending_short_attack: bool = False
+
+    def clear_reserve_heals(self) -> None:
+        """Called on death / when banked heals must reset."""
+        self.reserve_heal_pool.clear()
+        self.reserve_heal_cooldown_timer = 0.0
+
+    def apply_incoming_heal(self, amount: float) -> float:
+        """
+        Heal up to max_hp; leftover amount is appended to reserve_heal_pool (FIFO, max entries; if full, discard new).
+        Returns HP actually restored to HP bar.
+        """
+        if amount <= 0.0:
+            return 0.0
+        cap = float(self.max_hp)
+        before = float(self.hp)
+        room = max(0.0, cap - before)
+        applied = min(float(amount), room)
+        self.hp = before + applied
+        leftover = float(amount) - applied
+        if leftover > 0.0 and len(self.reserve_heal_pool) < int(RESERVE_HEAL_POOL_MAX_ENTRIES):
+            self.reserve_heal_pool.append(leftover)
+        return applied
+
+    def try_consume_reserve_heal(self) -> float:
+        """
+        Pop front of reserve_heal_pool (FIFO), heal up to max_hp. Unused portion of that entry is put back at front.
+        Returns HP restored this press, or 0 if pool empty or already full.
+        """
+        if not self.reserve_heal_pool:
+            return 0.0
+        cap = float(self.max_hp)
+        if self.hp >= cap - 1e-9:
+            return 0.0
+        first = float(self.reserve_heal_pool.pop(0))
+        room = cap - float(self.hp)
+        applied = min(first, room)
+        self.hp += applied
+        remainder = first - applied
+        if remainder > 1e-9:
+            self.reserve_heal_pool.insert(0, remainder)
+        return applied
 
     def get_hitbox_rect(self) -> pygame.Rect:
         """World-space rect for combat/collision (body only). Use this instead of full sprite rect so the transparent background doesn't count as hittable."""
@@ -180,6 +252,17 @@ class Player:
         self._facing_dir = getattr(self, "_facing_dir", "down")
         self._current_anim_key = ("idle", None)
 
+        global _ATTACK_TIMING_DEBUG_PRINTED
+        if not _ATTACK_TIMING_DEBUG_PRINTED:
+            _ATTACK_TIMING_DEBUG_PRINTED = True
+            s_fps, _ = ANIM_SPECS["attack_short"]
+            l_fps, _ = ANIM_SPECS["attack_long"]
+            print(f"[PLAYER] Attack animation FPS: attack_short={s_fps}, attack_long={l_fps}")
+            print(
+                f"[PLAYER] Long attack cooldown enforced at {PLAYER_LONG_ATTACK_COOLDOWN_SEC}s "
+                "(real timer; independent of animation lock)."
+            )
+
     def _load_directional_animations(self) -> None:
         """Populate directional animations dict if assets/entities/player/directional exists."""
         self._dir_animations = {}
@@ -222,7 +305,7 @@ class Player:
             if frames:
                 self._dir_animations.setdefault("walk", {})[dir_name] = frames
 
-        # attack_<dir>: reuse for both short and long attack states.
+        # attack_<dir> → attack_short only (short slash animations).
         for dir_name in ("up", "down", "left", "right"):
             sub = f"attack_{dir_name}"
             if not _subdir_exists(sub):
@@ -235,10 +318,53 @@ class Player:
                 near_white_threshold=PLAYER_NEAR_WHITE_THRESHOLD,
                 corner_bg_tolerance=PLAYER_CORNER_BG_TOLERANCE,
             )
-            if not frames:
-                continue
-            for state_key in ("attack_short", "attack_long"):
-                self._dir_animations.setdefault(state_key, {})[dir_name] = frames
+            if frames:
+                self._dir_animations.setdefault("attack_short", {})[dir_name] = frames
+
+        # attack_long_<dir> → attack_long; per-direction fallback to attack_<dir> if missing/empty.
+        long_used_fallback_for_any_dir = False
+        for dir_name in ("up", "down", "left", "right"):
+            sub_long = f"attack_long_{dir_name}"
+            sub_short = f"attack_{dir_name}"
+            frames = []
+            if _subdir_exists(sub_long):
+                frames = load_animation(
+                    os.path.join(base_rel, sub_long),
+                    size=PLAYER_SIZE,
+                    use_colorkey=True,
+                    colorkey_color=PLAYER_COLORKEY_BG,
+                    near_white_threshold=PLAYER_NEAR_WHITE_THRESHOLD,
+                    corner_bg_tolerance=PLAYER_CORNER_BG_TOLERANCE,
+                )
+            if not frames and _subdir_exists(sub_short):
+                long_used_fallback_for_any_dir = True
+                frames = load_animation(
+                    os.path.join(base_rel, sub_short),
+                    size=PLAYER_SIZE,
+                    use_colorkey=True,
+                    colorkey_color=PLAYER_COLORKEY_BG,
+                    near_white_threshold=PLAYER_NEAR_WHITE_THRESHOLD,
+                    corner_bg_tolerance=PLAYER_CORNER_BG_TOLERANCE,
+                )
+            if frames:
+                self._dir_animations.setdefault("attack_long", {})[dir_name] = frames
+
+        global _DIRECTIONAL_ATTACK_SETS_DEBUG_PRINTED
+        if not _DIRECTIONAL_ATTACK_SETS_DEBUG_PRINTED:
+            _DIRECTIONAL_ATTACK_SETS_DEBUG_PRINTED = True
+            print(
+                "[PLAYER] Directional short attack: "
+                "directional/attack_up|attack_down|attack_left|attack_right/"
+            )
+            long_msg = (
+                "directional/attack_long_up|attack_long_down|attack_long_left|attack_long_right/"
+            )
+            if long_used_fallback_for_any_dir:
+                long_msg += (
+                    " (one or more dirs fell back to directional/attack_<dir>/ — "
+                    "missing or empty attack_long_* folder)"
+                )
+            print(f"[PLAYER] Directional long attack: {long_msg}")
 
     def _dir_from_vector(self, dx: float, dy: float) -> str:
         if dx == 0 and dy == 0:
@@ -264,8 +390,7 @@ class Player:
         frames = self._animations.get(state, self._animations.get("idle", []))
         if self._use_directional and state in ("walk", "attack_short", "attack_long"):
             dir_map = self._dir_animations.get(state)
-            # For attack_long, fall back to attack_short directional if needed.
-            if state in ("attack_short", "attack_long") and not dir_map:
+            if state == "attack_long" and not dir_map:
                 dir_map = self._dir_animations.get("attack_short")
             if dir_map:
                 use_dir = dir_tag or getattr(self, "_facing_dir", "down")
@@ -273,6 +398,10 @@ class Player:
                     use_dir = "down"
                 if use_dir in dir_map:
                     frames = dir_map[use_dir]
+                elif state == "attack_long":
+                    short_map = self._dir_animations.get("attack_short")
+                    if short_map and use_dir in short_map:
+                        frames = short_map[use_dir]
         if not frames:
             frames = self._animations.get("idle", [])
         return frames
@@ -282,8 +411,27 @@ class Player:
         if new_state in ("walk", "attack_short", "attack_long"):
             dir_tag = getattr(self, "_facing_dir", "down")
         anim_key = (new_state, dir_tag)
-        if anim_key == getattr(self, "_current_anim_key", None):
+        old_key = getattr(self, "_current_anim_key", None)
+        # Only skip when state AND key are unchanged (walk→attack_short always differs in first tuple slot).
+        if anim_key == old_key and new_state == self.state:
             return
+        old_state = self.state
+        if DEBUG_LIVE_SHORT_ATTACK_TRACE and {old_state, new_state} & {
+            "walk",
+            "idle",
+            "attack_short",
+            "attack_long",
+        }:
+            print(f"[LIVE_TRACE] Player._set_state {old_state!r} -> {new_state!r} anim_key={anim_key!r}")
+        if DEBUG_BLOCK_PARRY_TRACE and {old_state, new_state} & {"block", "parry", "idle", "walk"}:
+            print(
+                f"[BLOCK_PARRY_TRACE] Player._set_state {old_state!r} -> {new_state!r} "
+                f"anim_key={anim_key!r} parry_timer={getattr(self, 'parry_window_timer', 0.0):.4f}"
+            )
+        if DEBUG_PLAYER_ATTACK_WALK_TRACE and new_state in ("attack_short", "attack_long"):
+            print(
+                f"[PLAYER] _set_state apply: {self.state!r} -> {new_state!r} anim_key={anim_key} was_key={old_key}"
+            )
         self.state = new_state
         self._current_anim_key = anim_key
         fps, loop = ANIM_SPECS.get(new_state, (10, True))
@@ -302,6 +450,7 @@ class Player:
         if new_state == "attack_long":
             self._long_attack_timer = 0.0
             self._long_attack_fired = False
+            self.long_attack_cooldown_timer = float(PLAYER_LONG_ATTACK_COOLDOWN_SEC)
         self._anim_state.set_animation(frames, fps, loop)
 
     def update(
@@ -318,13 +467,85 @@ class Player:
         self._ensure_animations_loaded()
         if self.inactive:
             return
+        state_at_update_entry = self.state
+        try:
+            self._run_update_body(
+                dt,
+                keys_pressed,
+                mouse_buttons,
+                block_held,
+                parry_request,
+                dash_request,
+                attack_short_request,
+                attack_long_request,
+                state_at_update_entry,
+            )
+        finally:
+            if DEBUG_LIVE_SHORT_ATTACK_TRACE and (
+                attack_short_request
+                or self._pending_short_attack
+                or state_at_update_entry == "attack_short"
+                or self.state == "attack_short"
+            ):
+                fi = getattr(self._anim_state, "current_frame_index", -1)
+                print(
+                    f"[LIVE_TRACE] Player.update end state={self.state!r} pending={self._pending_short_attack} "
+                    f"frame_idx={fi} short_req_was={attack_short_request}"
+                )
+            if DEBUG_PLAYER_ATTACK_WALK_TRACE and (
+                attack_short_request
+                or state_at_update_entry == "attack_short"
+                or self.state == "attack_short"
+            ):
+                fi = getattr(self._anim_state, "current_frame_index", -1)
+                print(
+                    f"[PLAYER] update end: state={self.state!r} began={state_at_update_entry!r} "
+                    f"frame_idx={fi} anim_key={self._current_anim_key}"
+                )
+
+    def _run_update_body(
+        self,
+        dt: float,
+        keys_pressed: set[int],
+        mouse_buttons: tuple[bool, bool, bool],
+        block_held: bool,
+        parry_request: bool,
+        dash_request: bool,
+        attack_short_request: bool,
+        attack_long_request: bool,
+        state_at_update_entry: str,
+    ) -> None:
+        if DEBUG_PLAYER_ATTACK_WALK_TRACE and attack_short_request:
+            print(
+                f"[PLAYER] update begin: state={self.state!r} short_req={attack_short_request} "
+                f"keys_WASD={bool(keys_pressed & _MOVEMENT_KEYS)}"
+            )
+        if self.long_attack_cooldown_timer > 0.0:
+            self.long_attack_cooldown_timer = max(0.0, self.long_attack_cooldown_timer - dt)
         if self.damage_flash_timer > 0.0:
             self.damage_flash_timer = max(0.0, self.damage_flash_timer - dt)
+        if self.invulnerable_timer > 0.0:
+            self.invulnerable_timer = max(0.0, self.invulnerable_timer - dt)
         self._consumed_dash_request = False
         locking = {"attack_short", "attack_long", "dash", "hit", "death"}
         can_accept_input = self.state not in locking
         # Dash can interrupt attack/block/parry so Space feels instant (no delay)
         can_dash = self.state not in ("dash", "hit", "death")
+
+        if DEBUG_LIVE_SHORT_ATTACK_TRACE:
+            print(
+                f"[LIVE_TRACE] _run_update_body state={self.state!r} can_accept_input={can_accept_input} "
+                f"attack_short_request={attack_short_request} _pending_short_attack={self._pending_short_attack}"
+            )
+
+        # Buffer short-attack clicks before any state branch returns early (e.g. during attack_short).
+        if attack_short_request and not can_accept_input:
+            self._pending_short_attack = True
+            if DEBUG_PLAYER_SHORT_ATTACK_BUFFER or DEBUG_PLAYER_ATTACK_INPUT_TRACE:
+                print(
+                    f"[BUFFER] short attack buffered (will swing when unlocked) "
+                    f"state={self.state!r} can_accept_input={can_accept_input}"
+                )
 
         # Death
         if self.hp <= 0 and self.state != "death":
@@ -347,24 +568,6 @@ class Player:
             self._anim_state.advance(dt)
             return
 
-        # Dash request (Space) — handle before hit/attack/block so dash feels instant
-        if can_dash and dash_request:
-            if not self.dash_active and getattr(self, "dash_cooldown_timer", 0) <= 0:
-                dx, dy = self.velocity_xy[0], self.velocity_xy[1]
-                if dx == 0 and dy == 0:
-                    dx, dy = self.facing[0], self.facing[1]
-                if dx == 0 and dy == 0:
-                    dx = 1
-                length = (dx * dx + dy * dy) ** 0.5
-                self.dash_direction = (dx / length, dy / length)
-                self.dash_active = True
-                self.dash_timer = PLAYER_DASH_DURATION_SEC
-                self._consumed_dash_request = True
-                self._set_state("dash")
-                apply_player_movement(self, keys_pressed, dt)
-                self._anim_state.advance(dt)
-                return
-
         # Hit (stub: one-shot then idle)
         if self.state == "hit":
             _, finished = self._anim_state.advance(dt)
@@ -386,33 +589,144 @@ class Player:
             apply_player_movement(self, keys_pressed, dt)
             return
 
-        # Block (J) and parry (K): J = hold to block; K = press for 120ms parry window
-        if block_held:
-            self._set_state("block")
+        # Drop guard visuals once block/parry window is over (before melee so LMB works right after releasing J).
+        if self.parry_window_timer <= 0 and not block_held:
+            if self.state in ("block", "parry"):
+                self._set_state("idle")
+
+        # Short attack BEFORE K-tap parry: key-repeat KEYDOWN on K can share a frame with LMB and previously
+        # stole the whole update (walk+LMB felt like multi-click). Ongoing parry (timer, no new K) stays below.
+        if attack_short_request and DEBUG_PLAYER_ATTACK_PROXIMITY:
+            print(
+                f"[PLAYER] update sees attack_short_request=True state={self.state} "
+                f"can_accept_input={can_accept_input}"
+            )
+        if DEBUG_SHORT_ATTACK_INPUT and attack_short_request:
+            print(
+                f"[SHORT_ATK_IN] Player.update receives attack_short_request=True "
+                f"state={state_at_update_entry!r} can_accept_input={can_accept_input} "
+                f"wasd={bool(keys_pressed & _MOVEMENT_KEYS)}"
+            )
+        # Short attack: pending was set above when locked; execute when unlocked.
+        want_short = can_accept_input and (attack_short_request or self._pending_short_attack)
+        if want_short:
+            had_pending = self._pending_short_attack
+            from_buffer_only = had_pending and not attack_short_request
+            if DEBUG_PLAYER_SHORT_ATTACK_BUFFER or DEBUG_PLAYER_ATTACK_INPUT_TRACE:
+                if from_buffer_only:
+                    print(
+                        f"[BUFFER] buffered short attack EXECUTED (consumed pending) "
+                        f"state={self.state!r} can_accept_input={can_accept_input}"
+                    )
+                elif attack_short_request:
+                    print(
+                        f"[BUFFER] short attack IMMEDIATE (no pending) "
+                        f"state={state_at_update_entry!r} can_accept_input={can_accept_input}"
+                    )
+            self._pending_short_attack = False
+            if (DEBUG_PLAYER_SHORT_ATTACK_BUFFER or DEBUG_PLAYER_ATTACK_INPUT_TRACE) and had_pending:
+                print(f"[BUFFER] pending buffer cleared state={self.state!r}")
+            self.parry_window_timer = 0.0
+            if DEBUG_PLAYER_ATTACK_PROXIMITY and _player_has_movement_keys(keys_pressed):
+                print("[PLAYER] Short attack triggered while moving (WASD held)")
+            prev_state = self.state
+            self._set_state("attack_short")
+            if DEBUG_SHORT_ATTACK_INPUT:
+                print(
+                    f"[SHORT_ATK_IN] attack_short state ENTERED from={prev_state!r} "
+                    f"anim_key={getattr(self, '_current_anim_key', None)!r}"
+                )
+            if DEBUG_PLAYER_ATTACK_WALK_TRACE:
+                if self.state != "attack_short":
+                    print(
+                        f"[PLAYER] ERROR: after _set_state(attack_short) state is {self.state!r} "
+                        f"anim_key={self._current_anim_key} (desync / early-return bug)"
+                    )
+                else:
+                    print(
+                        f"[PLAYER] after short attack trigger: state={self.state!r} "
+                        f"from={prev_state!r} anim_key={self._current_anim_key}"
+                    )
+            if DEBUG_PLAYER_ATTACK_PROXIMITY and prev_state == "walk":
+                print(f"[PLAYER] walk -> attack_short (short attack priority over walk/dash)")
+            apply_player_movement(self, keys_pressed, dt)
             self._anim_state.advance(dt)
-            apply_player_movement(self, set(), dt)
             return
+
+        # K pressed THIS frame: parry after short melee so K repeat + LMB still swings short (LMB wins same frame).
+        if DEBUG_BLOCK_PARRY_TRACE:
+            print(
+                f"[BLOCK_PARRY_TRACE] Player._run_update_body pre-parry "
+                f"state={self.state!r} block_held={block_held} parry_request={parry_request} "
+                f"parry_window_timer(before)={self.parry_window_timer:.4f} "
+                f"attack_short_request={attack_short_request}"
+            )
         if parry_request:
             self.parry_window_timer = PLAYER_PARRY_WINDOW_SEC
+        if parry_request and self.parry_window_timer > 0:
+            self.parry_window_timer -= dt
+            self._set_state("parry")
+            self._anim_state.advance(dt)
+            apply_player_movement(self, set(), dt)
+            if DEBUG_BLOCK_PARRY_TRACE:
+                print(
+                    f"[BLOCK_PARRY_TRACE] Player parry (K this frame) -> state={self.state!r} "
+                    f"parry_timer(after)={self.parry_window_timer:.4f} is_parry_active={self.is_parry_active()}"
+                )
+            return
+        if can_accept_input and attack_long_request:
+            if self.long_attack_cooldown_timer > 0.0:
+                print(
+                    f"[PLAYER] Long attack blocked by cooldown "
+                    f"({self.long_attack_cooldown_timer:.2f}s remaining / "
+                    f"{PLAYER_LONG_ATTACK_COOLDOWN_SEC}s configured)"
+                )
+            else:
+                self.parry_window_timer = 0.0
+                if DEBUG_PLAYER_ATTACK_PROXIMITY and _player_has_movement_keys(keys_pressed):
+                    print("[PLAYER] Long attack triggered while moving (WASD held)")
+                self._set_state("attack_long")
+                apply_player_movement(self, keys_pressed, dt)
+                self._anim_state.advance(dt)
+                return
+
+        # Ongoing parry window without a new K press: lower priority than short attack (handled above).
         if self.parry_window_timer > 0:
             self.parry_window_timer -= dt
             self._set_state("parry")
             self._anim_state.advance(dt)
             apply_player_movement(self, set(), dt)
+            if DEBUG_BLOCK_PARRY_TRACE:
+                print(
+                    f"[BLOCK_PARRY_TRACE] Player parry (ongoing timer) -> state={self.state!r} "
+                    f"parry_timer(after)={self.parry_window_timer:.4f} is_parry_active={self.is_parry_active()}"
+                )
             return
-        if self.state in ("block", "parry"):
-            self._set_state("idle")
-        # Attack requests
-        if can_accept_input and attack_short_request:
-            self._set_state("attack_short")
-            apply_player_movement(self, set(), dt)
+
+        # Block (J): K-tap parry and ongoing parry handled above.
+        if block_held:
+            self._set_state("block")
             self._anim_state.advance(dt)
-            return
-        if can_accept_input and attack_long_request:
-            self._set_state("attack_long")
             apply_player_movement(self, set(), dt)
-            self._anim_state.advance(dt)
             return
+
+        # Dash request (Space) — after melee so click + Space prioritizes attack
+        if can_dash and dash_request:
+            if not self.dash_active and getattr(self, "dash_cooldown_timer", 0) <= 0:
+                dx, dy = self.velocity_xy[0], self.velocity_xy[1]
+                if dx == 0 and dy == 0:
+                    dx, dy = self.facing[0], self.facing[1]
+                if dx == 0 and dy == 0:
+                    dx = 1
+                length = (dx * dx + dy * dy) ** 0.5
+                self.dash_direction = (dx / length, dy / length)
+                self.dash_active = True
+                self.dash_timer = PLAYER_DASH_DURATION_SEC
+                self._consumed_dash_request = True
+                self._set_state("dash")
+                apply_player_movement(self, keys_pressed, dt)
+                self._anim_state.advance(dt)
+                return
 
         # Normal movement
         apply_player_movement(self, keys_pressed, dt)
@@ -428,6 +742,17 @@ class Player:
                 self._set_state("idle")
             # else stay in current state (e.g. walk) so animation doesn't reset every frame
         self._anim_state.advance(dt)
+
+    def clear_short_attack_buffer(self, *, reason: str = "") -> None:
+        """Clear pending short-attack buffer (e.g. on pause so no swing fires after resume)."""
+        if not self._pending_short_attack:
+            return
+        self._pending_short_attack = False
+        if DEBUG_LIVE_SHORT_ATTACK_TRACE:
+            print(f"[LIVE_TRACE] clear_short_attack_buffer reason={reason!r} state={self.state!r}")
+        if DEBUG_PLAYER_SHORT_ATTACK_BUFFER or DEBUG_PLAYER_ATTACK_INPUT_TRACE:
+            msg = f"[BUFFER] pending cleared ({reason})" if reason else "[BUFFER] pending cleared"
+            print(f"{msg} state={self.state!r}")
 
     # --- Combat helpers used by systems.combat --------------------------------
 
@@ -474,6 +799,36 @@ class Player:
         self._ensure_animations_loaded()
         if self.inactive:
             return
+        if DEBUG_LIVE_SHORT_ATTACK_TRACE:
+            prev_live = getattr(self, "_debug_live_draw_prev", None)
+            if prev_live != self.state:
+                fi = getattr(self._anim_state, "current_frame_index", -1)
+                print(
+                    f"[LIVE_TRACE] draw render state={self.state!r} anim_key={self._current_anim_key} "
+                    f"frame_idx={fi}"
+                )
+            self._debug_live_draw_prev = self.state
+        if DEBUG_BLOCK_PARRY_TRACE and self.state in ("block", "parry"):
+            prev_bp = getattr(self, "_debug_block_parry_draw_prev", None)
+            if prev_bp != self.state:
+                fi = getattr(self._anim_state, "current_frame_index", -1)
+                print(
+                    f"[BLOCK_PARRY_TRACE] draw state={self.state!r} anim_key={self._current_anim_key} "
+                    f"frame_idx={fi} parry_timer={self.parry_window_timer:.4f} is_parry_active={self.is_parry_active()}"
+                )
+            self._debug_block_parry_draw_prev = self.state
+        if DEBUG_PLAYER_ATTACK_WALK_TRACE:
+            prev = getattr(self, "_debug_prev_draw_state", None)
+            if prev != self.state and (
+                self.state in ("attack_short", "attack_long")
+                or prev in ("attack_short", "attack_long")
+            ):
+                fi = getattr(self._anim_state, "current_frame_index", -1)
+                print(
+                    f"[PLAYER] draw: state {prev!r} -> {self.state!r} "
+                    f"frame_idx={fi} anim_key={self._current_anim_key}"
+                )
+            self._debug_prev_draw_state = self.state
         dx = self.world_pos[0] - camera_offset[0]
         dy = self.world_pos[1] - camera_offset[1]
         # Idle: always use the single visible idle frame (no blue background, no flicker).
@@ -522,4 +877,5 @@ class Player:
         """Stub for Phase 4: switch to hit state and play hit animation."""
         if self.state in ("hit", "death") or self.inactive:
             return
+        self._pending_short_attack = False
         self._set_state("hit")
