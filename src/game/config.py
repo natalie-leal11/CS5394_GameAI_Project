@@ -462,7 +462,7 @@ FINAL_BOSS_FINAL_DEATH_DELAY_SEC = 0.5
 FINAL_BOSS_HIT_FLINCH_SEC = 0.2
 
 # Testing: start dungeon from this room index instead of 0 (e.g. 0 = Biome 1, 8 = Biome 2, 16 = Biome 3).
-START_ROOM_INDEX = 27
+START_ROOM_INDEX = 0
 
 # --- Biome 1 Beginner Test Mode (promptforprompt/Biome1_Beginner_Test_Mode_Spec.md) ---
 # Temporary: fixed room order, reduced difficulty, deterministic. Set False to revert to normal.
