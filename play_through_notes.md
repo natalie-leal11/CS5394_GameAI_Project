@@ -86,6 +86,25 @@ STABLE is the default state when neither struggling nor dominating conditions ar
 Issues Still Exist:
 - (imp) Have to press LMB sometimes twice to make short attack work.
 - (imp) When player is walking, it can perform long attack but unable to do short attack.
+ANS: Short attack was being treated as a one-frame request flag. Changed it into a small buffered timer (0.12 sec). The click should survive for a brief window instead of exisitng only for only one frame.
 - have implemented multiple lives but player now reappears from same room where he dies,
   do we need to add some checkpoints logic?
+  ANS: For testing the current arrangement seems fine. But if we want to implement multiple lives as a general game attribute, checkpoints are important. Whenever we finish with the other issues we can add potential checkpoints at the start of each biome and in the safe room right before the final boss. I think this will help with keeping the lives less frustrating.
 - (imp) can you pls verify ranged enemy behaviour thats throws fireball from biome 3 or onwards? i have tried to fix but can you give a review- speed too fast and retreat too fast
+ANS: Lowered projectile speed to 180. Attack cooldown is 1.6 sec. Changed clopse threshold is 120, and far threshold is 210. All of these values can be modifiable by rl when we implement it, but for now buff speed and evasion distance in order to maintain fairness. 
+
+**April 2nd Run**
+- Responded to issues above
+- Added room and biome markers at the top left for testing purposes. Can be remove later if we want.
+- Created test for short attack under tests folder. Ran all tests:
+    - Short attack test successful
+    - Enemies tuning: Some enemies (swarm, miniboss) have different sizes. Probably just changed values, no cuase for concern
+    - Spawn system: set() is empty, no enemies spawned. This is likely due to the addition of AI_Director. If test was successful previously, may not need any changes. 
+    - API compatatiblity: Test expects _title_to_world(x,y) but code now requires _title_to_world(x,y,enemy_cls,room). If we feel the need to change, could just add 'None' default value for enemy_cls and room. 
+- Did complete run-through of game
+- Pause button works
+- Ranged enemy only spawns in biome 3. Still harder than regular enemies, but seems a bit more of an even fight with player. 
+- Victory screen works
+- Quick clarifications: 
+Health reduces by half with every respawn, right? So it starts at 200, second life will be 100, third life 50.
+- Can move to RL whenever you review and approve. 

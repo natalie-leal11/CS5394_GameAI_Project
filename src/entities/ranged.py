@@ -7,11 +7,11 @@ import pygame
 
 from game.config import (
     ENEMY_RANGED_ATTACK_COOLDOWN_SEC,
-    ENEMY_RANGED_STOP_DISTANCE,
     RANGED_PROJECTILE_SPEED,
     RANGED_PROJECTILE_LIFETIME_SEC,
     RANGED_KITE_CLOSE_THRESHOLD,
     RANGED_KITE_FAR_THRESHOLD,
+    RANGED_PLAYER_OVERLAP_PUSH_PX,
     RANGED_STRAFE_SPEED_FACTOR,
     RANGED_ATTACK_STRAFE_SPEED_FACTOR,
     ENEMY_MIN_X,
@@ -92,7 +92,6 @@ class Ranged(EnemyBase):
         dx = px - x
         dy = py - y
         dist = math.hypot(dx, dy)
-        stop_dist = float(ENEMY_RANGED_STOP_DISTANCE)
 
         if dist > 1e-3:
             nx, ny = dx / dist, dy / dist
@@ -105,7 +104,7 @@ class Ranged(EnemyBase):
 
         if dist < RANGED_KITE_CLOSE_THRESHOLD:
             # Too close: move away from player (slower than approach/strafe base for controlled retreat feel)
-            retreat_speed = self.move_speed * 0.5
+            retreat_speed = self.move_speed * 0.42
             vx = -nx * retreat_speed
             vy = -ny * retreat_speed
             self._set_state("walk")
@@ -115,7 +114,7 @@ class Ranged(EnemyBase):
             vy = ny * self.move_speed
             self._set_state("walk")
         else:
-            # Ideal band (140–220 px): strafe sideways; keep moving slowly when attacking
+            # Ideal band: strafe sideways; keep moving slowly when attacking
             perp_x = -ny
             perp_y = nx
             if self.attack_cooldown_timer <= 0.0:
@@ -155,8 +154,9 @@ class Ranged(EnemyBase):
             enemy_rect = self.get_hitbox_rect()
             player_rect = player.get_hitbox_rect()
             if enemy_rect.colliderect(player_rect) and dist > 1e-3:
-                x = px - nx * stop_dist
-                y = py - ny * stop_dist
+                push = float(RANGED_PLAYER_OVERLAP_PUSH_PX)
+                x -= nx * push
+                y -= ny * push
                 x = max(min_x, min(max_x, x))
                 y = max(min_y, min(max_y, y))
                 self.world_pos = (x, y)

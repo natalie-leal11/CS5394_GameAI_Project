@@ -100,13 +100,15 @@ ENEMY_RANGED_SIZE = (72, 72)
 ENEMY_RANGED_BASE_HP = 28
 ENEMY_RANGED_BASE_DAMAGE = 8
 ENEMY_RANGED_MOVE_SPEED = 60
-ENEMY_RANGED_ATTACK_COOLDOWN_SEC = 1.4
-RANGED_PROJECTILE_SPEED = 260
+ENEMY_RANGED_ATTACK_COOLDOWN_SEC = 1.6
+RANGED_PROJECTILE_SPEED = 180
 RANGED_PROJECTILE_DAMAGE = 8
 RANGED_PROJECTILE_LIFETIME_SEC = 3.0
 # Kiting: back away if closer than this, approach if farther than RANGED_KITE_FAR_THRESHOLD, strafe in between.
-RANGED_KITE_CLOSE_THRESHOLD = 140
-RANGED_KITE_FAR_THRESHOLD = 220
+RANGED_KITE_CLOSE_THRESHOLD = 120
+RANGED_KITE_FAR_THRESHOLD = 210
+# When hitboxes overlap player, nudge apart by this much per correction (avoid teleport to stop distance).
+RANGED_PLAYER_OVERLAP_PUSH_PX = 16
 # Strafe speed factor (of ENEMY_RANGED_MOVE_SPEED) when in ideal band; lower while firing.
 RANGED_STRAFE_SPEED_FACTOR = 0.7
 RANGED_ATTACK_STRAFE_SPEED_FACTOR = 0.5
@@ -460,7 +462,7 @@ FINAL_BOSS_FINAL_DEATH_DELAY_SEC = 0.5
 FINAL_BOSS_HIT_FLINCH_SEC = 0.2
 
 # Testing: start dungeon from this room index instead of 0 (e.g. 0 = Biome 1, 8 = Biome 2, 16 = Biome 3).
-START_ROOM_INDEX = 21
+START_ROOM_INDEX = 27
 
 # --- Biome 1 Beginner Test Mode (promptforprompt/Biome1_Beginner_Test_Mode_Spec.md) ---
 # Temporary: fixed room order, reduced difficulty, deterministic. Set False to revert to normal.
