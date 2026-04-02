@@ -109,11 +109,7 @@ def _render_outlined_hud_text(
     surf.blit(main, (pad, pad))
     return surf
 
-# Biome 3 Room 21 safe room: campaign index for upgrade panel (deterministic 3 choices, pick 1).
-BIOME3_SAFE_ROOM_INDEX = 21
-# Biome 4 Room 28 safe room: 4 options, choose exactly 2.
-BIOME4_SAFE_ROOM_INDEX = 28
-# Upgrade effects (Phase 2 safe room extension).
+# Upgrade effects (Phase 2 safe room extension; pick counts come from campaign index bands in GameScene).
 SAFE_ROOM_UPGRADE_HEALTH_MULT = 1.20   # +20% max HP
 SAFE_ROOM_UPGRADE_SPEED_MULT = 1.10   # +10% movement speed
 SAFE_ROOM_UPGRADE_ATTACK_MULT = 1.12  # +12% attack damage
@@ -292,8 +288,10 @@ class GameScene(BaseScene):
         # Death sequence state
         self._death_phase: str | None = None  # None, "anim", "freeze", "game_over"
         self._death_timer: float = 0.0
-        # Life-loss respawn: fade to black, then existing _respawn_player_in_current_room (no logic change there).
+        # Life-loss respawn: fade to black, then reload checkpoint room + same life/HP tier rules as before.
         self._is_in_life_loss_transition: bool = False
+        # Biome mini-boss clears (rooms 7/15/23) advance respawn entry to 8/16/24; fresh run starts at 0.
+        self._checkpoint_room_index: int = 0
         self._life_loss_transition_timer: float = 0.0
         self._life_loss_fade_in_timer: float = 0.0
         # VFX manager (slash + hit sparks)
@@ -521,6 +519,7 @@ class GameScene(BaseScene):
         self._gameplay_bg = None
         self._room_controller = None
         self._room_cleared_flag = False
+        self._checkpoint_room_index = 0
         self._room0_story_panel_open = False
         self._room0_exit_fade_timer = None
         self._room0_altar_pos = None
@@ -539,14 +538,14 @@ class GameScene(BaseScene):
         self._safe_room_heal_pos: tuple[float, float] | None = None
         self._near_safe_room_heal = False
         self._heal_flash_timer: float = 0.0
-        # Biome 3 Room 21 safe room: 3 upgrade choices, player picks 1 (deterministic order 1=Health, 2=Speed, 3=Attack).
+        # Biome 3/4 SAFE upgrades: flow arms on F heal; see _safe_room_upgrade_pick_count_for_current_room.
         self._safe_room_upgrade_chosen_this_room = False
         self._safe_room_upgrade_icon_health: pygame.Surface | None = None
         self._safe_room_upgrade_icon_speed: pygame.Surface | None = None
         self._safe_room_upgrade_icon_attack: pygame.Surface | None = None
         self._safe_room_upgrade_icon_defence: pygame.Surface | None = None
-        # Biome 4 safe room: 4 options, choose 2.
-        self._safe_room_biome4_picks_remaining = 0
+        # Biome 3/4 SAFE: picks remaining for upgrade UI (set from helper on F heal); biome 4 uses _safe_room_biome4_chosen too.
+        self._safe_room_upgrade_picks_remaining = 0
         self._safe_room_biome4_chosen: set[int] = set()
         self._paused = False
         self._pause_resume_hover_prev = False
@@ -642,12 +641,76 @@ class GameScene(BaseScene):
             return 100.0
         return 100.0 * float(p.hp) / mx
 
-    def _respawn_player_in_current_room(self) -> None:
-        """Lose one life; apply next life tier max HP; spawn at room entry; brief invulnerability."""
+    def _update_checkpoint_from_mini_boss_clear(self, room_index: int) -> None:
+        """When a biome mini-boss room is cleared, set respawn entry to the next biome's first room."""
+        next_cp: int | None = None
+        if room_index == 7:
+            next_cp = 8
+        elif room_index == 15:
+            next_cp = 16
+        elif room_index == 23:
+            next_cp = 24
+        if next_cp is not None:
+            self._checkpoint_room_index = next_cp
+            print(f"[CHECKPOINT] updated to room {next_cp}")
+
+    def _apply_transient_reset_after_loading_campaign_room(self, room) -> None:
+        """Clear per-room combat/UI transient state (aligned with forward door transition)."""
+        self._enemies = []
+        self._projectiles = []
+        self._spawned_enemies = False
+        self._spawn_system = None
+        self._room_cleared_flag = False
+        self._rewards = []
+        self._doors_unlocked = False
+        self._door_unlock_timer = None
+        self._mini_boss_death_pos = None
+        self._final_boss_spawn_timer = None
+        self._final_boss_spawned = False
+        self._room_time = 0.0
+        self._meteor_impacts = []
+        self._meteor_impact_display = []
+        self._final_boss_contact_timer = 0.0
+        self._boss_spawn_fx_timer = 0.0
+        self._boss_spawn_fx_pos = None
+        self._boss_revive_message_until = 0.0
+        self._boss_revive_message_shown = False
+        self._boss_death_fx_timer = 0.0
+        self._boss_death_fx_pos = None
+        self._boss_teleport_fx_frame = None
+        self._victory_phase = False
+        self._victory_timer = 0.0
+        self._safe_room_heal_done = False
+        if room.room_type == RoomType.FINAL_BOSS:
+            self._final_boss_spawn_timer = BIOME4_FINAL_BOSS_SPAWN_DELAY_SEC
+            self._final_boss_spawned = False
+            preload_final_boss_animations()
+            preload_enemy_animations("swarm")
+            preload_enemy_animations("flanker")
+        self._safe_room_upgrade_pending = False
+        self._safe_room_upgrade_chosen_this_room = False
+        self._safe_room_upgrade_picks_remaining = 0
+        self._safe_room_biome4_chosen = set()
+        self._heal_drop_rolled_this_room = False
+        self._safe_room_heal_pos = None
+
+    def _respawn_player_at_checkpoint(self) -> None:
+        """Lose one life; reload checkpoint campaign room; apply next life tier max HP; spawn at room entry."""
         p = self._player
-        room = self._room_controller.current_room if self._room_controller is not None else None
-        if p is None or room is None:
+        rc = self._room_controller
+        if p is None or rc is None:
             return
+        total = total_campaign_rooms()
+        cp = int(self._checkpoint_room_index)
+        if cp < 0 or cp >= total:
+            cp = 0
+        print(f"[CHECKPOINT] respawning at room {cp}")
+        rc.load_room(cp)
+        room = rc.current_room
+        if room is None:
+            return
+        self._apply_transient_reset_after_loading_campaign_room(room)
+        self._metrics_pending_room_start = True
         p.lives = max(0, int(getattr(p, "lives", 1)) - 1)
         p.life_index = int(getattr(p, "life_index", 0)) + 1
         idx = min(p.life_index, len(PLAYER_MAX_HP_BY_LIFE) - 1)
@@ -669,6 +732,21 @@ class GameScene(BaseScene):
         p.world_pos = (wx, wy)
         self._recent_life_loss_flag = True
         self._classify_player_model_from_current_run()
+
+    def _safe_room_upgrade_pick_count_for_current_room(self) -> int:
+        """How many distinct upgrades the player may take in this SAFE room (biome 3/4 only)."""
+        rc = self._room_controller
+        if rc is None:
+            return 0
+        room = rc.current_room
+        if room is None or room.room_type != RoomType.SAFE:
+            return 0
+        idx = rc.current_room_index
+        if BIOME3_START_INDEX <= idx < BIOME4_START_INDEX:
+            return 1
+        if idx >= BIOME4_START_INDEX:
+            return 2
+        return 0
 
     def _classify_player_model_from_current_run(self) -> None:
         """Build summary from metrics + player life_index / recent life loss; update player_state and AI Director."""
@@ -718,7 +796,7 @@ class GameScene(BaseScene):
         self._life_loss_transition_timer -= dt
         if self._life_loss_transition_timer <= 0.0:
             self._is_in_life_loss_transition = False
-            self._respawn_player_in_current_room()
+            self._respawn_player_at_checkpoint()
             self._life_loss_fade_in_timer = float(LIFE_LOSS_FADE_IN_SEC)
 
     def _draw_life_loss_overlay(self, screen: pygame.Surface) -> None:
@@ -1879,11 +1957,15 @@ class GameScene(BaseScene):
             if isinstance(e, FinalBoss) and getattr(e, "state", None) == "death" and not getattr(e, "_revived", False) and not getattr(e, "_final_death", False):
                 self._boss_death_fx_timer = 2.0
                 self._boss_death_fx_pos = (float(e.world_pos[0]), float(e.world_pos[1]))
-            if isinstance(e, (MiniBoss, MiniBoss2, Biome3MiniBoss, FinalBoss)) and getattr(e, "inactive", False):
+            if isinstance(e, (MiniBoss, MiniBoss2, Biome3MiniBoss)) and getattr(e, "inactive", False):
                 self._mini_boss_death_pos = e.world_pos
-                if isinstance(e, FinalBoss):
-                    self._boss_death_fx_timer = 2.0
-                    self._boss_death_fx_pos = (float(e.world_pos[0]), float(e.world_pos[1]))
+                if self._room_controller is not None:
+                    self._update_checkpoint_from_mini_boss_clear(self._room_controller.current_room_index)
+                break
+            if isinstance(e, FinalBoss) and getattr(e, "inactive", False):
+                self._mini_boss_death_pos = e.world_pos
+                self._boss_death_fx_timer = 2.0
+                self._boss_death_fx_pos = (float(e.world_pos[0]), float(e.world_pos[1]))
                 break
         # Capture one-frame teleport FX from Final Boss (then clear on boss)
         self._boss_teleport_fx_frame = None
@@ -2258,7 +2340,7 @@ class GameScene(BaseScene):
                         preload_enemy_animations("flanker")
                     self._safe_room_upgrade_pending = False
                     self._safe_room_upgrade_chosen_this_room = False
-                    self._safe_room_biome4_picks_remaining = 0
+                    self._safe_room_upgrade_picks_remaining = 0
                     self._safe_room_biome4_chosen = set()
                     self._heal_drop_rolled_this_room = False
                     self._safe_room_heal_pos = None
@@ -3543,14 +3625,17 @@ class GameScene(BaseScene):
             prompt_text = font.render("Press [F] to collect heal (+30% max HP)", True, (240, 240, 240))
             tw, th = prompt_text.get_size()
             screen.blit(prompt_text, (LOGICAL_W // 2 - tw // 2, LOGICAL_H // 2 - 80 + (48 - th) // 2))
-        # Biome 3 Room 21 safe room: 3 upgrade choices (pick one with 1/2/3)
+        # Biome 3 SAFE: 3 upgrade choices (pick one with 1/2/3); panel only after F heal arms picks (same as biome 4).
         if (
             self._room_controller is not None
             and self._room_controller.current_room is not None
-            and self._room_controller.current_room_index == BIOME3_SAFE_ROOM_INDEX
-            and self._room_controller.current_room.room_type == RoomType.SAFE
+            and self._safe_room_upgrade_pick_count_for_current_room() == 1
             and not self._safe_room_upgrade_chosen_this_room
             and self._player is not None
+            and (
+                self._safe_room_upgrade_pending
+                or self._safe_room_upgrade_picks_remaining > 0
+            )
         ):
             self._ensure_safe_room_upgrade_icons_loaded()
             self._ensure_room0_prop_surfaces()
@@ -3583,15 +3668,17 @@ class GameScene(BaseScene):
                 txt = row_font.render(label, True, (220, 220, 220))
                 screen.blit(txt, (panel_x + 24 + icon_size + 12, row_y))
                 row_y += 36
-        # Biome 4 Room 28 safe room: 4 upgrade options, choose exactly 2 (1/2/3/4)
+        # Biome 4 SAFE: 4 upgrade options, choose exactly 2 (1/2/3/4); any campaign index 24–29.
         if (
             self._room_controller is not None
             and self._room_controller.current_room is not None
-            and self._room_controller.current_room_index == BIOME4_SAFE_ROOM_INDEX
-            and self._room_controller.current_room.room_type == RoomType.SAFE
+            and self._safe_room_upgrade_pick_count_for_current_room() == 2
             and not self._safe_room_upgrade_chosen_this_room
             and self._player is not None
-            and (getattr(self, "_safe_room_upgrade_pending", False) or getattr(self, "_safe_room_biome4_picks_remaining", 0) > 0)
+            and (
+                self._safe_room_upgrade_pending
+                or self._safe_room_upgrade_picks_remaining > 0
+            )
         ):
             self._ensure_safe_room_upgrade_icons_loaded()
             self._ensure_room0_prop_surfaces()
@@ -3608,7 +3695,7 @@ class GameScene(BaseScene):
             except (pygame.error, OSError):
                 title_font = pygame.font.SysFont("arial", 16)
                 row_font = pygame.font.SysFont("arial", 14)
-            picks_left = getattr(self, "_safe_room_biome4_picks_remaining", 0)
+            picks_left = self._safe_room_upgrade_picks_remaining
             title = title_font.render(f"Choose two upgrades (1-4) — {picks_left} left", True, (240, 240, 240))
             screen.blit(title, (panel_x + (panel_w - title.get_width()) // 2, panel_y + 12))
             row_y = panel_y + 44
@@ -3838,8 +3925,9 @@ class GameScene(BaseScene):
                     self._metrics.record_healing(applied)
                     self._safe_room_heal_done = True
                     self._safe_room_upgrade_pending = True
-                    if self._room_controller.current_room_index == BIOME4_SAFE_ROOM_INDEX:
-                        self._safe_room_biome4_picks_remaining = 2
+                    pc_up = self._safe_room_upgrade_pick_count_for_current_room()
+                    self._safe_room_upgrade_picks_remaining = pc_up if pc_up > 0 else 0
+                    if pc_up == 2:
                         self._safe_room_biome4_chosen = set()
                     self._vfx.spawn_floating_text(self._safe_room_heal_pos, "+30% Health", (80, 255, 120))
                     self._heal_flash_timer = 0.35
@@ -3884,14 +3972,14 @@ class GameScene(BaseScene):
                 print("[PAUSE] ESC pauses game")
                 self._set_paused(True, reason="ESC pause")
                 return True
-            # Biome 4 Room 28 safe room: 4 options, choose exactly 2 (1/2/3/4)
+            # Biome 4 SAFE: 4 options, choose exactly 2 (1/2/3/4).
             if (
                 self._room_controller is not None
                 and self._room_controller.current_room is not None
-                and self._room_controller.current_room_index == BIOME4_SAFE_ROOM_INDEX
-                and self._room_controller.current_room.room_type == RoomType.SAFE
+                and self._safe_room_upgrade_pick_count_for_current_room() == 2
                 and not self._safe_room_upgrade_chosen_this_room
                 and self._player is not None
+                and self._safe_room_upgrade_picks_remaining > 0
                 and event.key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4)
             ):
                 choice = (event.key - pygame.K_1) + 1  # 1, 2, 3, or 4
@@ -3907,18 +3995,20 @@ class GameScene(BaseScene):
                     elif choice == 4:
                         self._player.damage_taken_mult = SAFE_ROOM_UPGRADE_DEFENCE_MULT
                     self._safe_room_biome4_chosen.add(choice)
-                    self._safe_room_biome4_picks_remaining = max(0, self._safe_room_biome4_picks_remaining - 1)
+                    self._safe_room_upgrade_picks_remaining = max(0, self._safe_room_upgrade_picks_remaining - 1)
                     if len(self._safe_room_biome4_chosen) >= 2:
                         self._safe_room_upgrade_chosen_this_room = True
+                        self._safe_room_upgrade_picks_remaining = 0
+                        self._safe_room_upgrade_pending = False
                 return True
-            # Biome 3 Room 21 safe room: 1=Health, 2=Speed, 3=Attack (pick one)
+            # Biome 3 SAFE: 1=Health, 2=Speed, 3=Attack (pick one).
             if (
                 self._room_controller is not None
                 and self._room_controller.current_room is not None
-                and self._room_controller.current_room_index == BIOME3_SAFE_ROOM_INDEX
-                and self._room_controller.current_room.room_type == RoomType.SAFE
+                and self._safe_room_upgrade_pick_count_for_current_room() == 1
                 and not self._safe_room_upgrade_chosen_this_room
                 and self._player is not None
+                and self._safe_room_upgrade_picks_remaining > 0
                 and event.key in (pygame.K_1, pygame.K_2, pygame.K_3)
             ):
                 choice = (event.key - pygame.K_1) + 1  # 1, 2, or 3
@@ -3931,8 +4021,14 @@ class GameScene(BaseScene):
                 elif choice == 3:  # Attack +12%
                     self._player.attack_damage_mult = SAFE_ROOM_UPGRADE_ATTACK_MULT
                 self._safe_room_upgrade_chosen_this_room = True
+                self._safe_room_upgrade_picks_remaining = 0
+                self._safe_room_upgrade_pending = False
                 return True
-            if getattr(self, "_safe_room_upgrade_pending", False) and event.key in (pygame.K_1, pygame.K_2):
+            if (
+                self._safe_room_upgrade_pick_count_for_current_room() == 0
+                and getattr(self, "_safe_room_upgrade_pending", False)
+                and event.key in (pygame.K_1, pygame.K_2)
+            ):
                 self._safe_room_upgrade_pending = False
                 return True
         if event.type == pygame.KEYUP:
