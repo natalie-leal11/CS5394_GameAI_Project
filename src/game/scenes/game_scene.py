@@ -118,6 +118,8 @@ SAFE_ROOM_UPGRADE_HEALTH_MULT = 1.20   # +20% max HP
 SAFE_ROOM_UPGRADE_SPEED_MULT = 1.10   # +10% movement speed
 SAFE_ROOM_UPGRADE_ATTACK_MULT = 1.12  # +12% attack damage
 SAFE_ROOM_UPGRADE_DEFENCE_MULT = 0.88  # -12% incoming damage
+# Short attack (LMB): time window for merging poll + event input (walk/state timing).
+SHORT_ATTACK_INPUT_BUFFER_SEC = 0.12
 from entities.player import Player
 from entities.swarm import Swarm
 from entities.flanker import Flanker
@@ -279,7 +281,7 @@ class GameScene(BaseScene):
         self._projectiles: list = []
         self._spawned_enemies = False  # Tracks whether initial spawn slots have been set up.
         self._dash_request = False
-        self._attack_short_request = False
+        self._attack_short_buffer_timer = 0.0
         self._attack_long_request = False
         self._parry_request = False  # K key just pressed (one-shot; window length = PLAYER_PARRY_WINDOW_SEC)
         # Edge-detect mouse buttons so attacks still register if MOUSEBUTTONDOWN was missed.
@@ -478,7 +480,7 @@ class GameScene(BaseScene):
         self._projectiles = []
         self._spawned_enemies = False
         self._dash_request = False
-        self._attack_short_request = False
+        self._attack_short_buffer_timer = 0.0
         self._attack_long_request = False
         self._parry_request = False
         try:
@@ -629,6 +631,7 @@ class GameScene(BaseScene):
             self._ensure_pause_menu_assets()
             if self._player is not None:
                 self._player.clear_short_attack_buffer(reason="pause")
+            self._attack_short_buffer_timer = 0.0
 
     def _player_hp_percent(self) -> float:
         p = self._player
@@ -1657,6 +1660,8 @@ class GameScene(BaseScene):
         # Normal play: player + enemies. Room 0 story panel open = disable movement (Requirements §9.4.2)
         # Life-loss transition: no input/movement until respawn (same frame semantics as story panel).
         _input_blocked = self._room0_story_panel_open or self._is_in_life_loss_transition
+        if self._attack_short_buffer_timer > 0.0:
+            self._attack_short_buffer_timer = max(0.0, self._attack_short_buffer_timer - dt)
         pressed = pygame.key.get_pressed()
         keys = set()
         if not _input_blocked:
@@ -1695,12 +1700,12 @@ class GameScene(BaseScene):
             right_edge = right_now and not self._prev_mouse_right
             self._prev_mouse_left = left_now
             self._prev_mouse_right = right_now
-            short_req = self._attack_short_request or left_edge
+            short_req = (self._attack_short_buffer_timer > 0.0) or left_edge
             long_req = self._attack_long_request or right_edge
             if DEBUG_SHORT_ATTACK_INPUT and short_req:
                 print(
                     f"[SHORT_ATK_IN] GameScene.update short_req=True "
-                    f"(_attack_short_request={self._attack_short_request} left_edge={left_edge} "
+                    f"(short_buffer={self._attack_short_buffer_timer:.4f} left_edge={left_edge} "
                     f"left_now={left_now}) -> Player.update"
                 )
             if DEBUG_LIVE_SHORT_ATTACK_TRACE:
@@ -1708,16 +1713,18 @@ class GameScene(BaseScene):
                 print(
                     f"[LIVE_TRACE] GameScene.update f={self._live_trace_frame} poll: "
                     f"left_now={left_now} prev_lmb={prev_lmb_stored} left_edge={left_edge} "
-                    f"_attack_short_request={self._attack_short_request} short_req={short_req} "
+                    f"short_buffer={self._attack_short_buffer_timer:.4f} short_req={short_req} "
                     f"player._pending_short_attack(before)={_pend}"
                 )
-            if DEBUG_PLAYER_ATTACK_WALK_TRACE and (short_req or self._attack_short_request):
+            if DEBUG_PLAYER_ATTACK_WALK_TRACE and (short_req or self._attack_short_buffer_timer > 0.0):
                 print(
                     f"[GAMESCENE] pre Player.update: short_req={short_req} "
-                    f"_attack_short_request={self._attack_short_request} left_edge={left_edge} "
+                    f"short_buffer={self._attack_short_buffer_timer:.4f} left_edge={left_edge} "
                     f"left_down={left_now} prev_lmb_before={prev_lmb_stored}"
                 )
         prev_player_pos = self._player.world_pos
+        st0 = self._player.state
+        pending0 = getattr(self._player, "_pending_short_attack", False)
         if not self._is_in_life_loss_transition:
             self._player.update(
                 dt,
@@ -1729,6 +1736,12 @@ class GameScene(BaseScene):
                 short_req,
                 long_req,
             )
+            if short_req:
+                pending1 = getattr(self._player, "_pending_short_attack", False)
+                started_short = self._player.state == "attack_short" and st0 != "attack_short"
+                newly_pending = pending1 and not pending0
+                if started_short or newly_pending:
+                    self._attack_short_buffer_timer = 0.0
             # Wall collision: revert if player moved into a wall/closed door tile.
             if room is not None:
                 self._resolve_entity_wall_collision(self._player, prev_player_pos, room)
@@ -1775,13 +1788,11 @@ class GameScene(BaseScene):
             self._dash_request = False
         if DEBUG_LIVE_SHORT_ATTACK_TRACE:
             print(
-                f"[LIVE_TRACE] CLEAR _attack_short_request end_frame f={self._live_trace_frame} "
-                f"was_true={bool(self._attack_short_request)} "
+                f"[LIVE_TRACE] end_frame short_buffer f={self._live_trace_frame} "
+                f"timer={self._attack_short_buffer_timer:.4f} "
                 f"pending_after={getattr(self._player, '_pending_short_attack', None)} "
                 f"player.state={getattr(self._player, 'state', None)!r}"
             )
-        # One-shot pygame flag: Player buffers locked clicks into _pending_short_attack so this can clear every frame.
-        self._attack_short_request = False
         self._attack_long_request = False
         self._parry_request = False
         self._metrics.player_idle = len(keys) == 0
@@ -3448,6 +3459,30 @@ class GameScene(BaseScene):
         self._draw_lives_hud(screen)
         self._draw_player_health_bar(screen)
         self._draw_reserve_heal_hud(screen)
+        # Run-through debug: room index (+ biome band from campaign layout) in screen space.
+        rc = self._room_controller
+        if rc is not None:
+            idx = getattr(rc, "current_room_index", None)
+            if isinstance(idx, int):
+                font_room = _hp_hud_font(14)
+                margin_l = 14
+                ly = PLAYER_HP_HUD_ROW_BOTTOM + 6
+                line1 = font_room.render(f"Room: {idx}", True, (200, 210, 220))
+                screen.blit(line1, (margin_l, ly))
+                biome_n: int | None
+                if 0 <= idx <= 7:
+                    biome_n = 1
+                elif 8 <= idx <= 15:
+                    biome_n = 2
+                elif 16 <= idx <= 23:
+                    biome_n = 3
+                elif 24 <= idx <= 29:
+                    biome_n = 4
+                else:
+                    biome_n = None
+                if biome_n is not None:
+                    line2 = font_room.render(f"Biome: {biome_n}", True, (200, 210, 220))
+                    screen.blit(line2, (margin_l, ly + line1.get_height() + 2))
         try:
             font = pygame.font.Font("assets/fonts/PixelifySans-Variable.ttf", 18)
         except (pygame.error, OSError):
@@ -3909,24 +3944,23 @@ class GameScene(BaseScene):
                         f"[LIVE_TRACE] MOUSEBUTTONDOWN btn=1 GameScene paused={self._paused} "
                         f"story_panel_open={self._room0_story_panel_open} "
                         f"death_phase={self._death_phase!r} victory={self._victory_phase} "
-                        f"_attack_short_request_before={self._attack_short_request}"
+                        f"_attack_short_buffer_before={self._attack_short_buffer_timer}"
                     )
                 # Room 0 story panel: combat is disabled in update() (short_req=False). Do not arm the
-                # one-shot flag or it is cleared at end of frame without Player ever seeing short_req=True.
+                # input buffer or it expires before Player ever sees short_req=True.
                 if self._room0_story_panel_open:
                     if DEBUG_LIVE_SHORT_ATTACK_TRACE:
                         print("[LIVE_TRACE] LMB not armed for attack (story panel open; E/ESC to close)")
                     return True
                 if DEBUG_SHORT_ATTACK_INPUT:
-                    print("[SHORT_ATK_IN] LMB MOUSEBUTTONDOWN: arming _attack_short_request")
-                self._attack_short_request = True
+                    print("[SHORT_ATK_IN] LMB MOUSEBUTTONDOWN: arming short attack input buffer")
+                self._attack_short_buffer_timer = SHORT_ATTACK_INPUT_BUFFER_SEC
                 # Force poll edge same frame as the event so left_edge matches MOUSEBUTTONDOWN even if
                 # _prev_mouse_left was stuck True (missed MOUSEBUTTONUP / focus quirks).
                 self._prev_mouse_left = False
                 if DEBUG_LIVE_SHORT_ATTACK_TRACE:
                     print(
-                        f"[LIVE_TRACE] MOUSEBUTTONDOWN -> _attack_short_request=True "
-                        f"(after={self._attack_short_request})"
+                        f"[LIVE_TRACE] MOUSEBUTTONDOWN -> short_buffer={self._attack_short_buffer_timer}"
                     )
                 if DEBUG_PLAYER_ATTACK_PROXIMITY:
                     print("[GAMESCENE] short attack request flag (MOUSEBUTTONDOWN button=1)")
