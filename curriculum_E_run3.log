@@ -79,3 +79,108 @@ Logging to C:\Users\maham\Downloads\CS5394_GameAI_Project\logs\ppo\iter2_cooldow
 |    policy_gradient_loss | -0.0131     |
 |    value_loss           | 0.48        |
 -----------------------------------------
+[PLAYER] Long attack blocked by cooldown (0.30s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.27s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.50s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.20s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.17s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.13s remaining / 1.2s configured)
+-----------------------------------------
+| rollout/                |             |
+|    ep_len_mean          | 20.3        |
+|    ep_rew_mean          | 3.12        |
+| time/                   |             |
+|    fps                  | 17          |
+|    iterations           | 3           |
+|    time_elapsed         | 354         |
+|    total_timesteps      | 6144        |
+| train/                  |             |
+|    approx_kl            | 0.011815546 |
+|    clip_fraction        | 0.0836      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -2.82       |
+|    explained_variance   | 0.642       |
+|    learning_rate        | 0.0003      |
+|    loss                 | 0.105       |
+|    n_updates            | 20          |
+|    policy_gradient_loss | -0.0165     |
+|    value_loss           | 0.258       |
+-----------------------------------------
+[PLAYER] Long attack blocked by cooldown (0.22s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.50s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.22s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.18s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.13s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.43s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.18s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.20s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.18s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.32s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.30s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.15s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.32s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.27s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.15s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.50s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.42s remaining / 1.2s configured)
+-----------------------------------------
+| rollout/                |             |
+|    ep_len_mean          | 15.8        |
+|    ep_rew_mean          | 3.17        |
+| time/                   |             |
+|    fps                  | 15          |
+|    iterations           | 4           |
+|    time_elapsed         | 517         |
+|    total_timesteps      | 8192        |
+| train/                  |             |
+|    approx_kl            | 0.010582387 |
+|    clip_fraction        | 0.116       |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -2.8        |
+|    explained_variance   | 0.73        |
+|    learning_rate        | 0.0003      |
+|    loss                 | 0.0896      |
+|    n_updates            | 30          |
+|    policy_gradient_loss | -0.0224     |
+|    value_loss           | 0.309       |
+-----------------------------------------
+[PLAYER] Long attack blocked by cooldown (0.30s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.12s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.17s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.12s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.20s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.32s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.20s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.45s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.27s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.48s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.47s remaining / 1.2s configured)
+-----------------------------------------
+| rollout/                |             |
+|    ep_len_mean          | 31.7        |
+|    ep_rew_mean          | 3.06        |
+| time/                   |             |
+|    fps                  | 14          |
+|    iterations           | 5           |
+|    time_elapsed         | 718         |
+|    total_timesteps      | 10240       |
+| train/                  |             |
+|    approx_kl            | 0.013001172 |
+|    clip_fraction        | 0.154       |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -2.78       |
+|    explained_variance   | 0.686       |
+|    learning_rate        | 0.0003      |
+|    loss                 | 0.0618      |
+|    n_updates            | 40          |
+|    policy_gradient_loss | -0.0238     |
+|    value_loss           | 0.196       |
+-----------------------------------------
+[PLAYER] Long attack blocked by cooldown (0.22s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.20s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.12s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.03s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.32s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.20s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.23s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.13s remaining / 1.2s configured)
