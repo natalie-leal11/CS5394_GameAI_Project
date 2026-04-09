@@ -184,3 +184,26 @@ Logging to C:\Users\maham\Downloads\CS5394_GameAI_Project\logs\ppo\iter2_cooldow
 [PLAYER] Long attack blocked by cooldown (0.20s remaining / 1.2s configured)
 [PLAYER] Long attack blocked by cooldown (0.23s remaining / 1.2s configured)
 [PLAYER] Long attack blocked by cooldown (0.13s remaining / 1.2s configured)
+-----------------------------------------
+| rollout/                |             |
+|    ep_len_mean          | 6.51        |
+|    ep_rew_mean          | 3.19        |
+| time/                   |             |
+|    fps                  | 10          |
+|    iterations           | 6           |
+|    time_elapsed         | 1205        |
+|    total_timesteps      | 12288       |
+| train/                  |             |
+|    approx_kl            | 0.011997492 |
+|    clip_fraction        | 0.13        |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -2.74       |
+|    explained_variance   | 0.864       |
+|    learning_rate        | 0.0003      |
+|    loss                 | 0.0472      |
+|    n_updates            | 50          |
+|    policy_gradient_loss | -0.0204     |
+|    value_loss           | 0.138       |
+-----------------------------------------
+[PLAYER] Long attack blocked by cooldown (0.47s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.17s remaining / 1.2s configured)
