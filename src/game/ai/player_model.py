@@ -1,10 +1,15 @@
-# Player state classification: deterministic percentage rules from MetricsTracker summary + DifficultyParams.
+# Player state classification: deterministic percentage rules from MetricsTracker summary + PlayerModelTuningParams.
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from game.ai.difficulty_params import DifficultyParams, DEFAULT_DIFFICULTY_PARAMS
+from game.ai.difficulty_params import (
+    DEFAULT_DIFFICULTY_PARAMS,
+    DifficultyParams,
+    PlayerModelTuningParams,
+    load_difficulty_params_json,
+)
 from game.ai.metrics_tracker import MetricsTracker, RoomMetrics, RunMetrics
 
 
@@ -114,8 +119,13 @@ def build_player_model_summary(
 class PlayerModel:
     """Maps metrics summary + difficulty params → high-level player state (deterministic, v3 percentage rules)."""
 
-    def __init__(self, params: DifficultyParams | None = None) -> None:
-        self._params = params or DEFAULT_DIFFICULTY_PARAMS
+    def __init__(
+        self,
+        difficulty_params: DifficultyParams | None = None,
+        tuning: PlayerModelTuningParams | None = None,
+    ) -> None:
+        self._dp: DifficultyParams = difficulty_params or load_difficulty_params_json()
+        self._tuning = tuning or DEFAULT_DIFFICULTY_PARAMS
         self.player_state: PlayerStateClass | None = None
 
     def classify(self, summary: PlayerModelSummaryInput) -> PlayerClassificationResult:
@@ -137,7 +147,8 @@ class PlayerModel:
 
         3) Else STABLE.
         """
-        p = self._params
+        pm = self._dp.player_model
+        t = self._tuning
         l3 = summary.last_3_rooms_result
         recent_death = bool(summary.recent_death_flag) or (len(l3) > 0 and l3[-1] == "death")
 
@@ -145,29 +156,29 @@ class PlayerModel:
         avg_hp_loss = _avg_hp_loss_last3(summary)
 
         bad_count = sum(1 for r in l3 if r in ("near_death", "death"))
-        weak_hp = hp_cur <= p.player_model_struggling_hp_weak_percent
-        weak_bad_rooms = bad_count >= p.player_model_struggling_bad_rooms_min
-        weak_avg_loss = avg_hp_loss >= p.player_model_struggling_avg_hp_loss_min
+        weak_hp = hp_cur <= pm.struggling_hp_weak_percent
+        weak_bad_rooms = bad_count >= t.player_model_struggling_bad_rooms_min
+        weak_avg_loss = avg_hp_loss >= t.player_model_struggling_avg_hp_loss_min
         weak_signal_count = int(weak_hp) + int(weak_bad_rooms) + int(weak_avg_loss)
 
-        struggle_critical = hp_cur <= p.player_model_struggling_hp_critical_percent
+        struggle_critical = hp_cur <= pm.struggling_hp_critical_percent
         struggle_from_two_weak = weak_signal_count >= 2
         struggling = bool(struggle_critical or recent_death or struggle_from_two_weak)
 
         clean_n = sum(1 for r in l3 if r == "clean_clear")
-        strong_clean = clean_n >= p.player_model_dominating_clean_clears_min
-        strong_low_avg_loss = avg_hp_loss <= p.player_model_dominating_avg_hp_loss_max_percent
+        strong_clean = clean_n >= t.player_model_dominating_clean_clears_min
+        strong_low_avg_loss = avg_hp_loss <= pm.dominating_avg_hp_loss_max_percent
 
         fast_recent = False
         ct = summary.last_3_rooms_clear_time
         if ct and len(ct) >= 2:
             avg_ct = sum(ct) / float(len(ct))
-            fast_recent = avg_ct <= p.player_model_fast_clear_avg_seconds
+            fast_recent = avg_ct <= t.player_model_fast_clear_avg_seconds
 
         strong_signals: list[bool] = [strong_clean, strong_low_avg_loss, fast_recent]
         strong_signal_count = int(sum(1 for s in strong_signals if s))
         strong_performance_met = strong_signal_count >= 2
-        baseline_dom = (hp_cur >= p.player_model_dominating_hp_min_percent) and (not recent_death)
+        baseline_dom = (hp_cur >= pm.dominating_hp_min_percent) and (not recent_death)
         dominating = bool((not struggling) and baseline_dom and strong_performance_met)
 
         if struggling:
@@ -205,7 +216,7 @@ class PlayerModel:
             "weak_signal_count": float(weak_signal_count),
             "struggle_from_two_weak": 1.0 if struggle_from_two_weak else 0.0,
             "avg_hp_loss_last3": avg_hp_loss,
-            "baseline_dom_hp": 1.0 if (hp_cur >= p.player_model_dominating_hp_min_percent) else 0.0,
+            "baseline_dom_hp": 1.0 if (hp_cur >= pm.dominating_hp_min_percent) else 0.0,
             "strong_clean": 1.0 if strong_clean else 0.0,
             "strong_low_avg_loss": 1.0 if strong_low_avg_loss else 0.0,
             "fast_recent_clears": 1.0 if fast_recent else 0.0,
@@ -240,7 +251,7 @@ class PlayerModel:
         Final visible state from life_index + HP (+ post-life-loss flag on Life 2).
         Overrides base v3 classification for HUD / AI Director. life_index: 0 = first life, 1 = second, 2 = last.
         """
-        p = self._params
+        t = self._tuning
         hp = float(summary.hp_percent_current)
         li = int(summary.life_index)
         if li >= 2:
@@ -248,12 +259,12 @@ class PlayerModel:
         if li == 1:
             if summary.recent_life_loss_flag:
                 return PlayerStateClass.STRUGGLING
-            if hp >= p.player_model_life2_stable_min_hp_percent:
+            if hp >= t.player_model_life2_stable_min_hp_percent:
                 return PlayerStateClass.STABLE
             return PlayerStateClass.STRUGGLING
-        if hp >= p.player_model_life1_dominating_min_hp_percent:
+        if hp >= t.player_model_life1_dominating_min_hp_percent:
             return PlayerStateClass.DOMINATING
-        if hp >= p.player_model_life1_stable_min_hp_percent:
+        if hp >= t.player_model_life1_stable_min_hp_percent:
             return PlayerStateClass.STABLE
         return PlayerStateClass.STRUGGLING
 

@@ -10,6 +10,7 @@ import pytest
 
 from dungeon.room import RoomType
 from game.ai.ai_director import AIDirector
+from game.ai.difficulty_params import load_difficulty_params_json
 from game.ai.biome1_director_spawn import (
     adjust_biome1_spawn_specs,
     biome1_director_spawn_eligible,
@@ -159,7 +160,7 @@ def _freeze_specs(specs: list) -> list[tuple]:
     ],
 )
 def test_ai_director_update_maps_player_state_to_all_biomes(state, exp):
-    d = AIDirector()
+    d = AIDirector(load_difficulty_params_json())
     d.update(state)
     for key, val in exp.items():
         assert getattr(d, key) == val, f"{key}: expected {val}, got {getattr(d, key)}"
@@ -167,7 +168,7 @@ def test_ai_director_update_maps_player_state_to_all_biomes(state, exp):
 
 
 def test_ai_director_none_like_stable_without_stable_label():
-    d = AIDirector()
+    d = AIDirector(load_difficulty_params_json())
     d.update(None)
     assert d.difficulty_modifier == 1.0
     assert d.reinforcement_chance_b3 == 0.15
@@ -175,7 +176,7 @@ def test_ai_director_none_like_stable_without_stable_label():
 
 
 def test_ai_director_biome_debug_helpers_match_fields():
-    d = AIDirector()
+    d = AIDirector(load_difficulty_params_json())
     d.update(PlayerStateClass.DOMINATING)
     b1 = d.get_biome1_debug()
     assert b1["composition_bias"] == "harder"

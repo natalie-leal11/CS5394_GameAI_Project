@@ -21,6 +21,7 @@ from game.config import (
     PLAYER_SHORT_ATTACK_WINDUP_SEC,
     PLAYER_SHORT_ATTACK_ACTIVE_SEC,
     PLAYER_LONG_ATTACK_WINDUP_SEC,
+    PLAYER_SHORT_ATTACK_COOLDOWN_SEC,
     PLAYER_LONG_ATTACK_COOLDOWN_SEC,
     PLAYER_SHORT_ATTACK_RANGE_PX,
     PLAYER_LONG_ATTACK_RANGE_PX,
@@ -93,7 +94,7 @@ class Player:
         self.state = "idle"
         self.facing = (1, 0)
         self.hp = float(PLAYER_BASE_HP)
-        self.base_max_hp = float(PLAYER_BASE_HP)  # Increased by Biome 3 Safe Room Health upgrade
+        self.base_max_hp = float(PLAYER_BASE_HP)  # Reference for HUD / %-heals; unchanged by Safe Room health pick
         self.max_hp = float(PLAYER_BASE_HP)       # Current max HP (cap for overheal)
         self.lives = int(PLAYER_LIVES_INITIAL)
         self.life_index = 0
@@ -109,6 +110,8 @@ class Player:
         self.move_speed_mult = 1.0   # +10% from Speed Boost
         self.attack_damage_mult = 1.0  # +12% from Attack Boost
         self.damage_taken_mult = 1.0   # Defense: -12% incoming = 0.88
+        # Health upgrade: Safe Room pick records mult; benefit is heal + overflow (not base_max_hp scaling).
+        self._safe_room_health_mult = 1.0
         # Dash
         self.dash_active = False
         self.dash_timer = 0.0
@@ -130,6 +133,8 @@ class Player:
         self._long_attack_fired = False
         # Real gameplay cooldown for long attack (independent of animation length).
         self.long_attack_cooldown_timer = 0.0
+        # Min gap between short-attack starts (keyboard/mouse and RL use the same Player path).
+        self.short_attack_cooldown_timer = 0.0
         # One visible frame for idle (Requirements: player visible when idle at all times).
         self._idle_surface: pygame.Surface | None = None
         # Directional animations (per facing dir); populated if directional assets exist.
@@ -141,6 +146,20 @@ class Player:
         self.damage_flash_timer: float = 0.0
         # Buffered short attack: click while locked (attack_short/dash/hit/death) is held until we can swing once.
         self._pending_short_attack: bool = False
+
+    def apply_safe_room_health_upgrade(self, mult: float) -> None:
+        """
+        Safe Room health upgrade: grant (mult - 1) * base_max_hp as healing via apply_incoming_heal
+        (fills HP up to max_hp; remainder goes to reserve_heal_pool). Does not change base_max_hp or max_hp.
+        """
+        m = float(mult)
+        if m <= 1.0:
+            return
+        base = float(self.base_max_hp)
+        bonus = base * (m - 1.0)
+        if bonus > 0.0:
+            self.apply_incoming_heal(bonus)
+        self._safe_room_health_mult = m
 
     def clear_reserve_heals(self) -> None:
         """Called on death / when banked heals must reset."""
@@ -258,6 +277,10 @@ class Player:
             s_fps, _ = ANIM_SPECS["attack_short"]
             l_fps, _ = ANIM_SPECS["attack_long"]
             print(f"[PLAYER] Attack animation FPS: attack_short={s_fps}, attack_long={l_fps}")
+            print(
+                f"[PLAYER] Short attack cooldown enforced at {PLAYER_SHORT_ATTACK_COOLDOWN_SEC}s "
+                "(real timer; independent of animation lock)."
+            )
             print(
                 f"[PLAYER] Long attack cooldown enforced at {PLAYER_LONG_ATTACK_COOLDOWN_SEC}s "
                 "(real timer; independent of animation lock)."
@@ -447,6 +470,7 @@ class Player:
         if new_state == "attack_short":
             self._short_attack_timer = 0.0
             self._short_attack_hit_ids.clear()
+            self.short_attack_cooldown_timer = float(PLAYER_SHORT_ATTACK_COOLDOWN_SEC)
         if new_state == "attack_long":
             self._long_attack_timer = 0.0
             self._long_attack_fired = False
@@ -522,6 +546,8 @@ class Player:
             )
         if self.long_attack_cooldown_timer > 0.0:
             self.long_attack_cooldown_timer = max(0.0, self.long_attack_cooldown_timer - dt)
+        if self.short_attack_cooldown_timer > 0.0:
+            self.short_attack_cooldown_timer = max(0.0, self.short_attack_cooldown_timer - dt)
         if self.damage_flash_timer > 0.0:
             self.damage_flash_timer = max(0.0, self.damage_flash_timer - dt)
         if self.invulnerable_timer > 0.0:
@@ -608,8 +634,11 @@ class Player:
                 f"wasd={bool(keys_pressed & _MOVEMENT_KEYS)}"
             )
         # Short attack: pending was set above when locked; execute when unlocked.
+        # Cooldown (config): cannot start a new short attack until timer elapses; keep buffer.
         want_short = can_accept_input and (attack_short_request or self._pending_short_attack)
-        if want_short:
+        if want_short and self.short_attack_cooldown_timer > 0.0:
+            self._pending_short_attack = True
+        elif want_short:
             had_pending = self._pending_short_attack
             from_buffer_only = had_pending and not attack_short_request
             if DEBUG_PLAYER_SHORT_ATTACK_BUFFER or DEBUG_PLAYER_ATTACK_INPUT_TRACE:

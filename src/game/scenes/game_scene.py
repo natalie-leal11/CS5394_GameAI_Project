@@ -1,8 +1,10 @@
 # GameScene: player, camera follow, input (WASD, dash, attacks, block/parry).
 
+import dataclasses
 import math
 import os
 import random
+import uuid
 import pygame
 
 from game.scenes.base_scene import BaseScene
@@ -25,7 +27,6 @@ from game.config import (
     DEBUG_DRAW_ATTACK_RANGE,
     SPAWN_SLOT_DELAY_SEC,
     MINI_BOSS_DOOR_UNLOCK_DELAY_SEC,
-    MINI_BOSS_REWARD_HEAL_PERCENT,
     SEED,
     LAVA_DAMAGE_PER_SECOND,
     SLOW_TILE_SPEED_FACTOR,
@@ -33,9 +34,7 @@ from game.config import (
     BIOME3_START_INDEX,
     BIOME4_START_INDEX,
     START_ROOM_INDEX,
-    SAFE_ROOM_HEAL_PERCENT,
     SAFE_ROOM_OVERHEAL_CAP_RATIO,
-    HEAL_DROP_CHANCE,
     AMBUSH_SPAWN_RADIUS_PX,
     TRIANGLE_OFFSET_PX,
     BEGINNER_TEST_MODE,
@@ -154,6 +153,7 @@ from systems.collisions import tile_range_for_centered_aabb
 from game.asset_loader import load_image
 from dungeon.room_controller import RoomController
 from dungeon.room import RoomType, TILE_FLOOR, TILE_LAVA, TILE_SLOW, total_campaign_rooms
+from dungeon.srs_biome_order import room_order_biome1_srs
 from dungeon.door_system import DoorState
 from dungeon.biome2_rooms import get_biome2_spawn_specs, get_biome2_spawn_pattern
 from dungeon.biome3_rooms import get_biome3_spawn_specs, get_biome3_spawn_pattern
@@ -177,7 +177,7 @@ from dungeon.biome4_visuals import (
     load_boss_fx_image,
     load_boss_projectile,
 )
-from game.rng import initialize_run_seed, get_run_seed, get_variant_id
+from game.rng import channel_key, derive_seed, initialize_run_seed, get_run_seed, get_variant_id
 from game.phase1_seed_debug import log_run_start, log_spawn_setup
 from game.ai.ai_director import AIDirector, EncounterDirectorSnapshot
 from game.ai.ai_logger import AILogger
@@ -263,12 +263,95 @@ def _pause_hover_from_normal(src: pygame.Surface) -> pygame.Surface:
     return out
 
 
+def _spawn_specs_director_reinforcement(before: list[tuple], after: list[tuple]) -> bool:
+    """
+    True if director output adds spawn slots or changes composition/elite layout (same-length swap).
+    Logging-only helper; does not affect spawn math.
+    """
+    if len(after) > len(before):
+        return True
+    if len(after) < len(before):
+        return False
+
+    def _sig(specs: list[tuple]) -> tuple[tuple[str, bool], ...]:
+        return tuple((s[0].__name__, bool(s[1])) for s in specs)
+
+    return _sig(after) != _sig(before)
+
+
+def is_normal_heal_drop_eligible(room_index: int, biome_index: int, room_type: RoomType | None) -> bool:
+    """
+    Middle combat rooms only (per biome). Excludes mini-boss, final boss, start, safe,
+    and first/last transition rooms. Used only for RNG room-clear heal orbs (not boss reward orbs).
+    """
+    if room_type is None:
+        return False
+    if room_type not in (RoomType.COMBAT, RoomType.AMBUSH, RoomType.ELITE):
+        return False
+    ri = int(room_index)
+    bi = int(biome_index)
+    # Biome-local middle bands (campaign indices): B1: 2–5, B2: 10–13, B3: 18–21, B4: 26–27.
+    if bi == 1:
+        return 2 <= ri <= 5
+    if bi == 2:
+        return 10 <= ri <= 13
+    if bi == 3:
+        return 18 <= ri <= 21
+    if bi == 4:
+        return 26 <= ri <= 27
+    return False
+
+
+def _heal_drop_index_band_for_biome(biome_index: int) -> tuple[int, int] | None:
+    """Campaign index range scanned for heal-drop eligibility (must match is_normal_heal_drop_eligible bands)."""
+    bi = int(biome_index)
+    if bi == 1:
+        return (2, 5)
+    if bi == 2:
+        return (10, 13)
+    if bi == 3:
+        return (18, 21)
+    if bi == 4:
+        return (26, 27)
+    return None
+
+
+def compute_selected_heal_drop_room_by_biome(run_seed: int) -> dict[int, int]:
+    """
+    One campaign room index per biome, chosen from indices that pass is_normal_heal_drop_eligible
+    when room layout is generated with run_seed. Deterministic from run_seed.
+    """
+    from dungeon.room import generate_room, total_campaign_rooms
+
+    out: dict[int, int] = {}
+    rs = int(run_seed)
+    total_rooms = total_campaign_rooms()
+    for bi in (1, 2, 3, 4):
+        band = _heal_drop_index_band_for_biome(bi)
+        if band is None:
+            continue
+        lo, hi = band
+        eligible: list[int] = []
+        for ri in range(lo, hi + 1):
+            if ri >= total_rooms:
+                continue
+            room = generate_room(ri, rs)
+            if is_normal_heal_drop_eligible(ri, bi, room.room_type):
+                eligible.append(ri)
+        if not eligible:
+            continue
+        rng = random.Random(derive_seed(rs, channel_key("heal_drop_biome_room_pick"), int(bi)))
+        out[bi] = int(eligible[rng.randrange(len(eligible))])
+    return out
+
+
 class GameScene(BaseScene):
     # Movement keys we care about (for held state)
     _MOVEMENT_KEYS = {pygame.K_w, pygame.K_s, pygame.K_a, pygame.K_d}
 
     def __init__(self, scene_manager):
         super().__init__(scene_manager)
+        self._difficulty_params = scene_manager.difficulty_params
         self._camera_target_world = (LOGICAL_W / 2.0, LOGICAL_H / 2.0)
         self._run_seed: int = int(get_run_seed())
         self._variant_id: int = int(get_variant_id())
@@ -285,6 +368,12 @@ class GameScene(BaseScene):
         self._prev_mouse_right = False
         # Track held keys via KEYDOWN/KEYUP so holding a key keeps moving
         self._keys_held = set()
+        # RL hook (reversible): Gymnasium env drives input; manual play leaves these False/0.
+        self._rl_controlled: bool = False
+        self._rl_action: int = 0
+        self._rl_skip_draw: bool = False
+        self._rl_curriculum_scenario: str | None = None
+        self._rl_curriculum_applied: bool = False
         # Death sequence state
         self._death_phase: str | None = None  # None, "anim", "freeze", "game_over"
         self._death_timer: float = 0.0
@@ -385,17 +474,25 @@ class GameScene(BaseScene):
         self._room0_prop_exit: pygame.Surface | None = None
         self._room0_prompt_bg: pygame.Surface | None = None
         self._room0_story_panel_surf: pygame.Surface | None = None
-        self._metrics = MetricsTracker()
+        self._metrics = MetricsTracker(self._difficulty_params)
         self._metrics_pending_room_start = False
-        self.player_model = PlayerModel()
+        self.player_model = PlayerModel(self._difficulty_params)
         self.player_state: PlayerStateClass | None = None
         # Set True on life-loss respawn; consumed on next PlayerModel classify (then cleared).
         self._recent_life_loss_flag: bool = False
-        self.ai_director = AIDirector()
+        self.ai_director = AIDirector(self._difficulty_params)
         # Encounter spawn uses this snapshot only; updated in _update_player_model_after_room_end (not per-frame classify).
         self._encounter_directive_for_next_room: EncounterDirectorSnapshot = EncounterDirectorSnapshot.neutral_default()
         # File-backed logging starts in reset() with initialize_run_seed(); no file until a run begins.
+        self._run_id: str | None = None
         self.ai_logger = AILogger(run_seed=None)
+        # Prevents duplicate session_end rows (victory/defeat/aborted/quit share one slot per run).
+        self._session_outcome_logged: bool = False
+        # room_end log only: per-campaign-room completion attempts; resets each run in reset().
+        self._room_end_log_room_attempts: dict[int, int] = {}
+        self._session_room_completion_seq: int = 0
+        # Per-run monotonic counter for heal-drop RNG (not room_index alone; see update heal roll).
+        self._heal_drop_roll_seq: int = 0
         self._debug_overlay = DebugOverlay(self)
         # One-room hazard relief after heavy lava damage (Biome 3 / 4 director)
         self._pending_b3_hazard_relief: float = 1.0
@@ -459,18 +556,30 @@ class GameScene(BaseScene):
             out.append((center_x, center_y, target_room_index, d0.state, d0.is_safe_door))
         return out
 
-    def reset(self) -> None:
-        """Reset player, enemies, and input so GameScene can be reused after death."""
+    def reset(
+        self,
+        *,
+        for_new_run: bool = True,
+        run_seed_override: int | None = None,
+        rl_curriculum_scenario: str | None = None,
+    ) -> None:
+        """Reset player, enemies, and input so GameScene can be reused after death or new Play."""
+        if for_new_run:
+            self._session_outcome_logged = False
         # Seed determinism: one run seed generated at run start.
-        run_seed = initialize_run_seed()
+        # run_seed_override: RL hook (reversible) — Gymnasium env passes seed for reproducibility.
+        run_seed = initialize_run_seed(run_seed_override)
         self._run_seed = int(run_seed)
         self._variant_id = int(get_variant_id())
         self._metrics.start_run(run_seed)
         self._metrics_pending_room_start = True
+        self._room_end_log_room_attempts = {}
+        self._session_room_completion_seq = 0
         self.player_state = None
         self._recent_life_loss_flag = False
         self._encounter_directive_for_next_room = EncounterDirectorSnapshot.neutral_default()
-        self.ai_logger = AILogger(run_seed=int(run_seed))
+        self._run_id = str(uuid.uuid4())
+        self.ai_logger = AILogger(run_seed=int(run_seed), run_id=self._run_id)
         log_run_start(run_seed)
         self._camera_target_world = (LOGICAL_W / 2.0, LOGICAL_H / 2.0)
         self._player = None
@@ -534,6 +643,10 @@ class GameScene(BaseScene):
         self._safe_room_heal_done = False
         self._safe_room_upgrade_pending = False
         self._heal_drop_rolled_this_room = False
+        self._heal_drop_roll_seq = 0
+        self._selected_heal_drop_room_by_biome: dict[int, int] = compute_selected_heal_drop_room_by_biome(
+            int(run_seed)
+        )
         # Safe Room heal object: one per Safe Room, position set when entering; cleared on room leave
         self._safe_room_heal_pos: tuple[float, float] | None = None
         self._near_safe_room_heal = False
@@ -552,6 +665,75 @@ class GameScene(BaseScene):
         self._pause_main_hover_prev = False
         self._pause_main_hovered = False
         self._boss_hp_bar_dbg_t = 0.0
+        # RL curriculum (E/F micro-scenarios): optional; only meaningful when for_new_run and _rl_controlled.
+        if for_new_run:
+            self._rl_curriculum_scenario = rl_curriculum_scenario
+            self._rl_curriculum_applied = False
+        else:
+            self._rl_curriculum_scenario = None
+            self._rl_curriculum_applied = False
+
+    def _first_safe_room_index_biome1(self, seed: int) -> int:
+        """Campaign index of the first SAFE room in biome 1 for this run seed (deterministic)."""
+        order = room_order_biome1_srs(int(seed))
+        for i, rt in enumerate(order):
+            if rt == RoomType.SAFE:
+                return i
+        return 3
+
+    def _maybe_apply_rl_curriculum(self) -> None:
+        """
+        One-shot warp after RoomController + Player exist: teach E (room 0 altar) or F (biome-1 SAFE).
+
+        Only when RL-controlled and reset() set _rl_curriculum_scenario. Does not affect manual play.
+        """
+        if not getattr(self, "_rl_controlled", False):
+            return
+        scen = getattr(self, "_rl_curriculum_scenario", None)
+        if scen is None or getattr(self, "_rl_curriculum_applied", False):
+            return
+        if self._room_controller is None or self._player is None:
+            return
+
+        if scen == "interact":
+            if self._room_controller.current_room_index != 0:
+                self._room_controller.load_room(START_ROOM_INDEX)
+            self._enemies.clear()
+            self._spawned_enemies = False
+            self._spawn_system = None
+            self._setup_room0_props_and_dummy()
+            if self._room0_altar_pos:
+                ax, ay = self._room0_altar_pos
+                self._player.world_pos = (ax - 32.0, ay)
+            self._room0_story_panel_open = False
+            self._rl_curriculum_applied = True
+            return
+
+        if scen == "safe_heal":
+            seed = int(self._run_seed)
+            safe_idx = self._first_safe_room_index_biome1(seed)
+            self._room_controller.load_room(safe_idx)
+            self._enemies.clear()
+            self._spawned_enemies = False
+            self._spawn_system = None
+            room = self._room_controller.current_room
+            if room is not None and room.room_type == RoomType.SAFE:
+                b = room.wall_border()
+                tx = b + 2
+                ty = b + 2
+                wx, wy = room.world_pos_for_tile(tx, ty)
+                self._safe_room_heal_pos = (wx, wy)
+                self._player.world_pos = (wx + 10.0, wy + 10.0)
+                self._near_safe_room_heal = True
+            else:
+                self._safe_room_heal_pos = None
+                self._near_safe_room_heal = False
+            mx = float(self._player.max_hp)
+            self._player.hp = max(1.0, mx * 0.42)
+            self._safe_room_heal_done = False
+            self._metrics_pending_room_start = True
+            self._rl_curriculum_applied = True
+            return
 
     def _layout_pause_menu_buttons(self) -> None:
         """Stack Resume (top) and Main Menu below; logical coords; same sizes as main menu buttons."""
@@ -616,6 +798,7 @@ class GameScene(BaseScene):
     def _go_to_main_menu_from_pause(self) -> None:
         """Leave run UI; switch to StartScene. Next Play calls reset() — do not reset here (avoids extra seed log)."""
         self._paused = False
+        self._rl_log_session_end("aborted")
         print("[PAUSE] Main Menu clicked -> scene_manager.switch_to_start() (startup main menu)")
         self.scene_manager.switch_to_start()
 
@@ -718,12 +901,15 @@ class GameScene(BaseScene):
         p.base_max_hp = cap
         p.max_hp = cap
         p.hp = cap
+        p._safe_room_health_mult = 1.0
         p.clear_reserve_heals()
         p.invulnerable_timer = float(PLAYER_RESPAWN_INVULN_SEC)
         p.velocity_xy = (0.0, 0.0)
         p.dash_active = False
         p.dash_timer = 0.0
         p.dash_cooldown_timer = 0.0
+        p.long_attack_cooldown_timer = 0.0
+        p.short_attack_cooldown_timer = 0.0
         p.inactive = False
         p._pending_short_attack = False
         p._set_state("idle")
@@ -846,9 +1032,70 @@ class GameScene(BaseScene):
             "ai_post_revive_delay_sec": 0.0,
         }
 
+    def _rl_log_session_end(self, outcome: str) -> None:
+        """Persist victory/defeat/aborted/quit without changing gameplay."""
+        if self._session_outcome_logged:
+            return
+        self._session_outcome_logged = True
+        run = self._metrics.run
+        self.ai_logger.log_session_end(
+            {
+                "run_id": self._run_id,
+                "seed": int(run.run_seed),
+                "victory_or_defeat": outcome,
+                "total_run_time": float(run.run_elapsed_time),
+                "rooms_cleared": int(run.rooms_cleared),
+            }
+        )
+
+    def log_session_end_on_app_quit(self) -> None:
+        """Window close: one session_end row with outcome \"quit\" (logging only)."""
+        self._rl_log_session_end("quit")
+
+    def finalize_rl_log_on_leave(self) -> None:
+        """Leaving GameScene for main menu without a recorded outcome: log ``session_end`` with ``aborted`` (RL completeness)."""
+        if self._session_outcome_logged or self._run_id is None:
+            return
+        self._rl_log_session_end("aborted")
+
+    def _rl_log_heal_applied(
+        self,
+        *,
+        heal_source: str,
+        hp_before: float,
+        hp_after: float,
+        heal_amount_applied: float,
+    ) -> None:
+        """Structured heal consumption for offline RL (no gameplay effect)."""
+        if self._run_id is None:
+            return
+        rc = self._room_controller
+        room = rc.current_room if rc is not None else None
+        ri = int(rc.current_room_index) if rc is not None else -1
+        bidx = int(getattr(room, "biome_index", 1)) if room is not None else 1
+        rt = room.room_type.value if room is not None else ""
+        self.ai_logger.log_event(
+            "heal_applied",
+            {
+                "run_id": self._run_id,
+                "run_seed": int(self._metrics.run.run_seed),
+                "room_index": ri,
+                "biome_index": bidx,
+                "room_type": rt,
+                "player_state": self.player_state.name if self.player_state is not None else None,
+                "heal_source": heal_source,
+                "hp_percent_before": float(hp_before),
+                "hp_percent_after": float(hp_after),
+                "heal_amount_applied": float(heal_amount_applied),
+                "consumed": True,
+            },
+        )
+
     def _update_player_model_after_room_end(self) -> None:
         """After MetricsTracker.end_room; does not touch gameplay."""
         self._classify_player_model_from_current_run()
+        # Snapshot that was frozen for encounter spawns in the room that just ended (before we store next room).
+        encounter_snapshot_used = dataclasses.asdict(self._encounter_directive_for_next_room)
         # Freeze director outputs for the *next* room's spawns (current room already populated or done).
         self._encounter_directive_for_next_room = self.ai_director.capture_encounter_snapshot()
         # Heavy hazard damage in Biome 3/4 → one-room relief factor on next encounter (spawn tuning / debug).
@@ -862,14 +1109,29 @@ class GameScene(BaseScene):
             if bio == 4 and hl >= 22.0:
                 self._pending_b4_hazard_relief = 0.88
         run = self._metrics.run
+        last_rm = hist[-1] if hist else None
         rr = run.room_result
         room_result_s = rr.value if hasattr(rr, "value") else str(rr)
         ps = self.player_state.name if self.player_state is not None else None
+        comp_list: list[str] = []
+        if last_rm and getattr(last_rm, "enemy_types_in_room", ""):
+            comp_list = [x for x in str(last_rm.enemy_types_in_room).split(",") if x]
+        p = self._player
+        life_i = int(getattr(p, "life_index", 0)) if p is not None else 0
+        lives_r = int(getattr(p, "lives", 0)) if p is not None else 0
+        ri_log = int(last_rm.current_room_index) if last_rm else int(run.current_room_index)
+        self._room_end_log_room_attempts[ri_log] = self._room_end_log_room_attempts.get(ri_log, 0) + 1
+        room_attempt_index = int(self._room_end_log_room_attempts[ri_log])
+        self._session_room_completion_seq += 1
+        # Lives consumed from starting pool (same run); distinguishes checkpoint replays vs first pass.
+        checkpoint_retry_count = max(0, int(PLAYER_LIVES_INITIAL) - lives_r)
         self.ai_logger.log_room(
             {
+                "run_id": self._run_id,
                 "seed": int(run.run_seed),
                 "room_index": int(run.current_room_index),
                 "biome_index": int(run.current_biome_index),
+                "room_type": str(last_rm.room_type) if last_rm else "",
                 "player_state": ps,
                 "difficulty_modifier": float(self.ai_director.difficulty_modifier),
                 "enemy_adjustment": int(self.ai_director.effective_enemy_adjustment()),
@@ -881,6 +1143,21 @@ class GameScene(BaseScene):
                 "min_hp_during_room": float(run.min_hp_during_room),
                 "max_hp_during_room": float(run.max_hp_during_room),
                 "hp_lost_in_room": float(run.hp_lost_in_room),
+                "life_index": life_i,
+                "lives_remaining": lives_r,
+                "room_attempt_index": room_attempt_index,
+                "session_room_completion_seq": int(self._session_room_completion_seq),
+                "checkpoint_retry_count": int(checkpoint_retry_count),
+                "room_clear_time": float(last_rm.room_clear_time) if last_rm else 0.0,
+                "rooms_cleared": int(run.rooms_cleared),
+                "total_run_time": float(run.run_elapsed_time),
+                "victory_or_defeat": "none",
+                "healing_received": float(last_rm.healing_amount_collected) if last_rm else 0.0,
+                "enemy_count": int(last_rm.enemies_spawned_count) if last_rm else 0,
+                "enemy_composition": comp_list,
+                "elite_count": int(last_rm.elite_enemies_count) if last_rm else 0,
+                "reinforcement_applied": bool(last_rm.reinforcement_applied) if last_rm else False,
+                "encounter_director_snapshot_used": encounter_snapshot_used,
             }
         )
 
@@ -946,6 +1223,7 @@ class GameScene(BaseScene):
             self._player.hp = base_hp
             self._player.base_max_hp = base_hp
             self._player.max_hp = base_hp
+            self._player._safe_room_health_mult = 1.0
             if self._room_controller is not None and self._room_controller.current_room is not None:
                 room = self._room_controller.current_room
                 wx, wy = room.world_pos_for_tile(room.spawn_tile[0], room.spawn_tile[1])
@@ -955,6 +1233,7 @@ class GameScene(BaseScene):
                     self._player.hp = base_hp
                     self._player.base_max_hp = base_hp
                     self._player.max_hp = base_hp
+                    self._player._safe_room_health_mult = 1.0
 
     def _ensure_spawn_system(self) -> None:
         """Setup initial Phase 5 spawn slots (telegraph + portal) once per scene."""
@@ -966,8 +1245,15 @@ class GameScene(BaseScene):
         if room is not None:
             # Frozen at last room-end classify; not live ai_director (per-frame classify must not rebalance this room).
             enc = self._encounter_directive_for_next_room
+            reinforcement_applied = False
             # Per-slot spawn clamp uses enemy class + room in SpawnSystem.update (no generic half-max).
-            self._spawn_system = SpawnSystem(self._vfx, room_bounds=None)
+            _c = self._difficulty_params.combat
+            self._spawn_system = SpawnSystem(
+                self._vfx,
+                room_bounds=None,
+                elite_hp_mult=_c.elite_hp_multiplier,
+                elite_damage_mult=_c.elite_damage_multiplier,
+            )
             b2_spawn_mods: dict[str, float] = {}
             b3_spawn_mods: dict[str, float] = {}
             b4_spawn_mods: dict[str, float] = {}
@@ -1006,6 +1292,7 @@ class GameScene(BaseScene):
                     beginner_test_mode=BEGINNER_TEST_MODE,
                 ):
                     hte4 = float(enc.hazard_tune_factor_b4) * float(self._pending_b4_hazard_relief)
+                    _specs_b4_before = list(spawn_specs)
                     spawn_specs, b4_spawn_mods = adjust_biome4_spawn_specs(
                         spawn_specs,
                         room_type=rtype,
@@ -1025,6 +1312,8 @@ class GameScene(BaseScene):
                         Heavy=Heavy,
                         Ranged=Ranged,
                     )
+                    if _spawn_specs_director_reinforcement(_specs_b4_before, spawn_specs):
+                        reinforcement_applied = True
                     self._pending_b4_hazard_relief = 1.0
             elif room_idx >= BIOME3_START_INDEX:  # Biome 3 rooms 16-23; Room 23 uses Biome3MiniBoss
                 configure_biome3_miniboss_director(fireball_cd_mult=1.0, fireball_telegraph_mult=1.0)
@@ -1058,6 +1347,7 @@ class GameScene(BaseScene):
                     beginner_test_mode=BEGINNER_TEST_MODE,
                 ):
                     hte3 = float(enc.hazard_tune_factor_b3) * float(self._pending_b3_hazard_relief)
+                    _specs_b3_before = list(spawn_specs)
                     spawn_specs, b3_spawn_mods = adjust_biome3_spawn_specs(
                         spawn_specs,
                         room_type=rtype,
@@ -1077,6 +1367,8 @@ class GameScene(BaseScene):
                         Heavy=Heavy,
                         Ranged=Ranged,
                     )
+                    if _spawn_specs_director_reinforcement(_specs_b3_before, spawn_specs):
+                        reinforcement_applied = True
                     self._pending_b3_hazard_relief = 1.0
             elif room_idx >= 8:  # Biome 2 rooms (campaign indices 8-15) use MiniBoss2
                 spawn_specs = get_biome2_spawn_specs(
@@ -1089,6 +1381,7 @@ class GameScene(BaseScene):
                     room_type=rtype,
                     beginner_test_mode=BEGINNER_TEST_MODE,
                 ):
+                    _specs_b2_before = list(spawn_specs)
                     spawn_specs, b2_spawn_mods = adjust_biome2_spawn_specs(
                         spawn_specs,
                         room_type=rtype,
@@ -1105,6 +1398,8 @@ class GameScene(BaseScene):
                         Brute=Brute,
                         Heavy=Heavy,
                     )
+                    if _spawn_specs_director_reinforcement(_specs_b2_before, spawn_specs):
+                        reinforcement_applied = True
             elif BEGINNER_TEST_MODE:
                 if room_idx == 0 or rtype in (RoomType.START, RoomType.SAFE):
                     pass
@@ -1145,6 +1440,7 @@ class GameScene(BaseScene):
                     beginner_test_mode=BEGINNER_TEST_MODE,
                 ):
                     if biome1_trial_phase_active(room_idx, bidx):
+                        _specs_b1_before = list(spawn_specs)
                         spawn_specs = adjust_biome1_spawn_specs(
                             spawn_specs,
                             room_type=rtype,
@@ -1158,7 +1454,10 @@ class GameScene(BaseScene):
                             Flanker=Flanker,
                             Brute=Brute,
                         )
+                        if _spawn_specs_director_reinforcement(_specs_b1_before, spawn_specs):
+                            reinforcement_applied = True
                     else:
+                        _specs_b1_before = list(spawn_specs)
                         spawn_specs = adjust_biome1_spawn_specs(
                             spawn_specs,
                             room_type=rtype,
@@ -1172,6 +1471,23 @@ class GameScene(BaseScene):
                             Flanker=Flanker,
                             Brute=Brute,
                         )
+                        if _spawn_specs_director_reinforcement(_specs_b1_before, spawn_specs):
+                            reinforcement_applied = True
+
+            _spawn_comp = [s[0].__name__ for s in spawn_specs]
+            _spawn_elite = sum(1 for s in spawn_specs if s[1])
+            self._metrics.set_room_spawn_metadata(
+                enemy_count=len(spawn_specs),
+                composition=_spawn_comp,
+                elite_count=_spawn_elite,
+                reinforcement_applied=reinforcement_applied,
+            )
+            if room_idx == 0 and any(getattr(e, "is_training_dummy", False) for e in self._enemies):
+                self._metrics.append_runtime_spawn_metadata(
+                    names=["TrainingDummy"],
+                    elite_flags=[False],
+                    mark_reinforcement=False,
+                )
 
             # Advanced spawn: spread / triangle / ambush by room type; world_pos per slot.
             # Movement clamp / spawn acceptance use same per-class body as in-game movement.
@@ -1433,7 +1749,12 @@ class GameScene(BaseScene):
                 spawn_specs=spawn_specs,
             )
         else:
-            self._spawn_system = SpawnSystem(self._vfx)
+            _c = self._difficulty_params.combat
+            self._spawn_system = SpawnSystem(
+                self._vfx,
+                elite_hp_mult=_c.elite_hp_multiplier,
+                elite_damage_mult=_c.elite_damage_multiplier,
+            )
             px, py = self._player.world_pos
             px_tile = int(px // TILE_SIZE)
             py_tile = int(py // TILE_SIZE)
@@ -1631,6 +1952,7 @@ class GameScene(BaseScene):
     def update(self, dt: float) -> None:
         self._ensure_room()
         self._ensure_player()
+        self._maybe_apply_rl_curriculum()
         if self._player is None:
             return
         if DEBUG_LIVE_SHORT_ATTACK_TRACE:
@@ -1658,9 +1980,15 @@ class GameScene(BaseScene):
                     self._room_controller.current_room_index,
                     int(room_m.biome_index),
                     self._player_hp_percent(),
+                    room_type=room_m.room_type.value,
                 )
             self._metrics_pending_room_start = False
         room = self._room_controller.current_room if self._room_controller else None
+        # So EnemyBase (Heavy movement vs Biome 4) matches current room before spawn + enemy update.
+        if room is not None:
+            enemy_base_module.CURRENT_BIOME_INDEX = int(getattr(room, "biome_index", 1))
+        else:
+            enemy_base_module.CURRENT_BIOME_INDEX = 1
         if self._room_controller is not None and room is not None:
             self.ai_director.update_room_context(
                 int(self._room_controller.current_room_index),
@@ -1725,9 +2053,13 @@ class GameScene(BaseScene):
             # 2.0 - 5.0 sec: blackscreen + victory banner
             # 5.0 sec: return to main menu
             if self._victory_timer >= 5.0:
-                self._victory_phase = False
-                self._victory_timer = 0.0
-                self.scene_manager.switch_to_start()
+                if not getattr(self, "_rl_controlled", False):  # RL hook (reversible)
+                    self._victory_phase = False
+                    self._victory_timer = 0.0
+                    self.scene_manager.switch_to_start()
+                else:
+                    # RL-only path: stay terminal until env.reset(); keep victory flag for Gymnasium
+                    self._victory_timer = 5.0
             return
 
         # If we're in a death sequence, run its timeline and skip normal combat.
@@ -1737,49 +2069,96 @@ class GameScene(BaseScene):
 
         # Normal play: player + enemies. Room 0 story panel open = disable movement (Requirements §9.4.2)
         # Life-loss transition: no input/movement until respawn (same frame semantics as story panel).
+        # RL: close story / altar via ACTION_INTERACT (E) through handle_event — same as manual play.
         _input_blocked = self._room0_story_panel_open or self._is_in_life_loss_transition
-        if self._attack_short_buffer_timer > 0.0:
-            self._attack_short_buffer_timer = max(0.0, self._attack_short_buffer_timer - dt)
-        pressed = pygame.key.get_pressed()
-        keys = set()
-        if not _input_blocked:
-            if pressed[pygame.K_w]:
-                keys.add(pygame.K_w)
-            if pressed[pygame.K_s]:
-                keys.add(pygame.K_s)
-            if pressed[pygame.K_a]:
-                keys.add(pygame.K_a)
-            if pressed[pygame.K_d]:
-                keys.add(pygame.K_d)
-        block_held = False if _input_blocked else (pygame.K_j in self._keys_held or pressed[pygame.K_j])
-        parry_request = False if _input_blocked else self._parry_request
-        if DEBUG_BLOCK_PARRY_TRACE:
-            print(
-                f"[BLOCK_PARRY_TRACE] GameScene.update f={self._block_parry_trace_frame} "
-                f"paused={self._paused} story_panel={self._room0_story_panel_open} life_loss={self._is_in_life_loss_transition} "
-                f"death={self._death_phase!r} victory={self._victory_phase} "
-                f"block_held={block_held} _parry_request={self._parry_request} -> parry_request={parry_request} "
-                f"K_in_keys_held={pygame.K_k in self._keys_held}"
+        # Short-attack buffer is aged only after Player.update (see below) so the arming frame
+        # sees full remaining time and MOUSEBUTTONDOWN is not decremented away before short_req.
+        if getattr(self, "_rl_controlled", False):
+            # RL-only path: action vector replaces keyboard/mouse for this frame (reversible).
+            from rl.action_map import (
+                attack_flags_for_action,
+                block_parry_for_action,
+                dash_requested_for_action,
+                interaction_key_for_action,
+                movement_keys_for_action,
             )
-        mouse = (0, 0, 0) if _input_blocked else pygame.mouse.get_pressed(3)
-        dash_req = False if _input_blocked else self._dash_request
-        if _input_blocked:
-            short_req = False
-            long_req = False
-            if DEBUG_LIVE_SHORT_ATTACK_TRACE:
+
+            # E / F / H / 1–4: same KEYDOWN path as manual play (handle_event).
+            ik = interaction_key_for_action(int(self._rl_action))
+            if ik is not None:
+                self._rl_dispatch_interaction_keydown(ik)
+
+            keys = movement_keys_for_action(self._rl_action) if not _input_blocked else set()
+            if not _input_blocked and dash_requested_for_action(self._rl_action):
+                self._dash_request = True
+            # RL hook: block/parry from discrete action only (no J/K keyboard or mouse).
+            if not _input_blocked:
+                block_held, parry_request = block_parry_for_action(self._rl_action)
+            else:
+                block_held = False
+                parry_request = False
+            if DEBUG_BLOCK_PARRY_TRACE:
                 print(
-                    f"[LIVE_TRACE] GameScene.update f={self._live_trace_frame} story_panel_open=True "
-                    f"-> short_req=False long_req=False (mouse/poll ignored for combat)"
+                    f"[BLOCK_PARRY_TRACE] GameScene.update f={self._block_parry_trace_frame} "
+                    f"paused={self._paused} story_panel={self._room0_story_panel_open} life_loss={self._is_in_life_loss_transition} "
+                    f"death={self._death_phase!r} victory={self._victory_phase} "
+                    f"block_held={block_held} _parry_request={self._parry_request} -> parry_request={parry_request} "
+                    f"K_in_keys_held={pygame.K_k in self._keys_held}"
                 )
+            mouse = (0, 0, 0)
+            dash_req = False if _input_blocked else self._dash_request
+            if _input_blocked:
+                short_req = False
+                long_req = False
+                if DEBUG_LIVE_SHORT_ATTACK_TRACE:
+                    print(
+                        f"[LIVE_TRACE] GameScene.update f={self._live_trace_frame} story_panel_open=True "
+                        f"-> short_req=False long_req=False (mouse/poll ignored for combat)"
+                    )
+            else:
+                short_req, long_req = attack_flags_for_action(self._rl_action)
+                # RL-only path: do not OR in self._attack_long_request (mouse/RMB); action only.
         else:
-            prev_lmb_stored = self._prev_mouse_left
-            left_now, _, right_now = mouse[0], mouse[1], mouse[2]
-            left_edge = left_now and not self._prev_mouse_left
-            right_edge = right_now and not self._prev_mouse_right
-            self._prev_mouse_left = left_now
-            self._prev_mouse_right = right_now
-            short_req = (self._attack_short_buffer_timer > 0.0) or left_edge
-            long_req = self._attack_long_request or right_edge
+            pressed = pygame.key.get_pressed()
+            keys = set()
+            if not _input_blocked:
+                if pressed[pygame.K_w]:
+                    keys.add(pygame.K_w)
+                if pressed[pygame.K_s]:
+                    keys.add(pygame.K_s)
+                if pressed[pygame.K_a]:
+                    keys.add(pygame.K_a)
+                if pressed[pygame.K_d]:
+                    keys.add(pygame.K_d)
+            block_held = False if _input_blocked else (pygame.K_j in self._keys_held or pressed[pygame.K_j])
+            parry_request = False if _input_blocked else self._parry_request
+            if DEBUG_BLOCK_PARRY_TRACE:
+                print(
+                    f"[BLOCK_PARRY_TRACE] GameScene.update f={self._block_parry_trace_frame} "
+                    f"paused={self._paused} story_panel={self._room0_story_panel_open} life_loss={self._is_in_life_loss_transition} "
+                    f"death={self._death_phase!r} victory={self._victory_phase} "
+                    f"block_held={block_held} _parry_request={self._parry_request} -> parry_request={parry_request} "
+                    f"K_in_keys_held={pygame.K_k in self._keys_held}"
+                )
+            mouse = (0, 0, 0) if _input_blocked else pygame.mouse.get_pressed(3)
+            dash_req = False if _input_blocked else self._dash_request
+            if _input_blocked:
+                short_req = False
+                long_req = False
+                if DEBUG_LIVE_SHORT_ATTACK_TRACE:
+                    print(
+                        f"[LIVE_TRACE] GameScene.update f={self._live_trace_frame} story_panel_open=True "
+                        f"-> short_req=False long_req=False (mouse/poll ignored for combat)"
+                    )
+            else:
+                prev_lmb_stored = self._prev_mouse_left
+                left_now, _, right_now = mouse[0], mouse[1], mouse[2]
+                left_edge = left_now and not self._prev_mouse_left
+                right_edge = right_now and not self._prev_mouse_right
+                self._prev_mouse_left = left_now
+                self._prev_mouse_right = right_now
+                short_req = (self._attack_short_buffer_timer > 0.0) or left_edge
+                long_req = self._attack_long_request or right_edge
             if DEBUG_SHORT_ATTACK_INPUT and short_req:
                 print(
                     f"[SHORT_ATK_IN] GameScene.update short_req=True "
@@ -1823,6 +2202,9 @@ class GameScene(BaseScene):
             # Wall collision: revert if player moved into a wall/closed door tile.
             if room is not None:
                 self._resolve_entity_wall_collision(self._player, prev_player_pos, room)
+        # Age buffer after short_req was evaluated and Player.update consumed/cleared it this frame.
+        if self._attack_short_buffer_timer > 0.0:
+            self._attack_short_buffer_timer = max(0.0, self._attack_short_buffer_timer - dt)
         if not self._is_in_life_loss_transition and room is not None and DEBUG_TOP_EDGE:
             b = room.wall_border()
             px, py = self._player.world_pos
@@ -1922,6 +2304,11 @@ class GameScene(BaseScene):
                 self._enemies.append(
                     FinalBoss((wx, wy), room_index=self._room_controller.current_room_index, **self._final_boss_director_kwargs())
                 )
+                self._metrics.append_runtime_spawn_metadata(
+                    names=["FinalBoss"],
+                    elite_flags=[False],
+                    mark_reinforcement=False,
+                )
                 self._boss_spawn_fx_timer = 1.2
                 self._boss_spawn_fx_pos = (float(wx), float(wy))
                 self._boss_revive_message_until = 0.0
@@ -2001,6 +2388,11 @@ class GameScene(BaseScene):
                     add_positions.append((wx, wy))
                     add_enemy = add_cls((wx, wy), elite=elite)
                     self._enemies.append(add_enemy)
+                self._metrics.append_runtime_spawn_metadata(
+                    names=["Swarm", "Swarm", "Flanker"],
+                    elite_flags=[False, False, False],
+                    mark_reinforcement=True,
+                )
                 e._pending_adds = False
                 break
         # Phase 3: copy Final Boss meteor impacts with trigger_at = room_time + phase-specific telegraph
@@ -2143,7 +2535,7 @@ class GameScene(BaseScene):
                             f"[RANGED LIFECYCLE] room_clear_check n={len(self._enemies)} "
                             f"types={_names} spawns_done={spawns_done}"
                         )
-                if spawns_done and len(self._enemies) == 0:
+                if spawns_done and len(self._enemies) == 0 and self._metrics.run.room_active_flag:
                     if DEBUG_RANGED_ENEMY_LIFECYCLE:
                         print("[RANGED LIFECYCLE] room_clear_triggered -> on_room_clear()")
                     self._room_controller.on_room_clear()
@@ -2152,50 +2544,116 @@ class GameScene(BaseScene):
                     self._update_player_model_after_room_end()
                     if not self._heal_drop_rolled_this_room:
                         self._heal_drop_rolled_this_room = True
-                        rng = random.Random(SEED + self._room_controller.current_room_index * 100)
-                        heal_p = HEAL_DROP_CHANCE
                         ri = self._room_controller.current_room_index
+                        bidx = int(getattr(room, "biome_index", 1)) if room is not None else 1
+                        rt = room.room_type if room is not None else None
                         psn = self.player_state.name if self.player_state is not None else None
-                        if (
-                            room is not None
-                            and int(getattr(room, "biome_index", 1)) == 1
-                            and ri < 8
-                            and not BEGINNER_TEST_MODE
-                            and room.room_type
-                            in (RoomType.COMBAT, RoomType.AMBUSH, RoomType.ELITE)
-                        ):
-                            heal_p = biome1_effective_heal_drop_chance(HEAL_DROP_CHANCE, psn)
-                        elif (
-                            room is not None
-                            and int(getattr(room, "biome_index", 1)) == 2
-                            and BIOME3_START_INDEX > ri >= 8
-                            and not BEGINNER_TEST_MODE
-                            and room.room_type
-                            in (RoomType.COMBAT, RoomType.AMBUSH, RoomType.ELITE)
-                        ):
-                            heal_p = biome2_effective_heal_drop_chance(HEAL_DROP_CHANCE, psn)
-                        elif (
-                            room is not None
-                            and int(getattr(room, "biome_index", 1)) == 3
-                            and BIOME4_START_INDEX > ri >= BIOME3_START_INDEX
-                            and not BEGINNER_TEST_MODE
-                            and room.room_type
-                            in (RoomType.COMBAT, RoomType.AMBUSH, RoomType.ELITE)
-                        ):
-                            heal_p = biome3_effective_heal_drop_chance(HEAL_DROP_CHANCE, psn)
-                        elif (
-                            room is not None
-                            and int(getattr(room, "biome_index", 1)) == 4
-                            and 29 > ri >= BIOME4_START_INDEX
-                            and not BEGINNER_TEST_MODE
-                            and room.room_type
-                            in (RoomType.COMBAT, RoomType.AMBUSH, RoomType.ELITE)
-                        ):
-                            heal_p = biome4_effective_heal_drop_chance(HEAL_DROP_CHANCE, psn)
-                        if rng.random() < heal_p and room is not None and room.room_type not in (RoomType.START, RoomType.SAFE):
-                            cx, cy = room.width // 2, room.height // 2
-                            wx, wy = room.world_pos_for_tile(cx, cy)
-                            self._rewards.append({"pos": (wx, wy), "collected": False})
+                        if is_normal_heal_drop_eligible(ri, bidx, rt):
+                            if self._selected_heal_drop_room_by_biome.get(bidx) != ri:
+                                self.ai_logger.log_event(
+                                    "heal_drop_skipped",
+                                    {
+                                        "run_id": self._run_id,
+                                        "run_seed": int(self._metrics.run.run_seed),
+                                        "room_index": int(ri),
+                                        "biome_index": int(bidx),
+                                        "room_type": rt.value if rt is not None else "",
+                                        "reason": "not_selected_biome_room",
+                                        "heal_evaluation_complete": True,
+                                    },
+                                )
+                            else:
+                                self._heal_drop_roll_seq += 1
+                                rng = random.Random(
+                                    derive_seed(
+                                        get_run_seed(),
+                                        self._heal_drop_roll_seq,
+                                        channel_key("heal_drop"),
+                                    )
+                                )
+                                _base_heal_p = self._difficulty_params.rewards.heal_drop_base_chance
+                                heal_p = _base_heal_p
+                                if (
+                                    room is not None
+                                    and int(getattr(room, "biome_index", 1)) == 1
+                                    and ri < 8
+                                    and not BEGINNER_TEST_MODE
+                                    and room.room_type
+                                    in (RoomType.COMBAT, RoomType.AMBUSH, RoomType.ELITE)
+                                ):
+                                    heal_p = biome1_effective_heal_drop_chance(_base_heal_p, psn)
+                                elif (
+                                    room is not None
+                                    and int(getattr(room, "biome_index", 1)) == 2
+                                    and BIOME3_START_INDEX > ri >= 8
+                                    and not BEGINNER_TEST_MODE
+                                    and room.room_type
+                                    in (RoomType.COMBAT, RoomType.AMBUSH, RoomType.ELITE)
+                                ):
+                                    heal_p = biome2_effective_heal_drop_chance(_base_heal_p, psn)
+                                elif (
+                                    room is not None
+                                    and int(getattr(room, "biome_index", 1)) == 3
+                                    and BIOME4_START_INDEX > ri >= BIOME3_START_INDEX
+                                    and not BEGINNER_TEST_MODE
+                                    and room.room_type
+                                    in (RoomType.COMBAT, RoomType.AMBUSH, RoomType.ELITE)
+                                ):
+                                    heal_p = biome3_effective_heal_drop_chance(_base_heal_p, psn)
+                                elif (
+                                    room is not None
+                                    and int(getattr(room, "biome_index", 1)) == 4
+                                    and 29 > ri >= BIOME4_START_INDEX
+                                    and not BEGINNER_TEST_MODE
+                                    and room.room_type
+                                    in (RoomType.COMBAT, RoomType.AMBUSH, RoomType.ELITE)
+                                ):
+                                    heal_p = biome4_effective_heal_drop_chance(_base_heal_p, psn)
+                                roll = rng.random()
+                                spawn_heal = roll < heal_p
+                                eligible = room is not None and room.room_type not in (
+                                    RoomType.START,
+                                    RoomType.SAFE,
+                                )
+                                spawned = spawn_heal and eligible
+                                self.ai_logger.log_event(
+                                    "heal_drop_roll",
+                                    {
+                                        "run_id": self._run_id,
+                                        "run_seed": int(self._metrics.run.run_seed),
+                                        "room_index": int(self._metrics.run.current_room_index),
+                                        "biome_index": int(self._metrics.run.current_biome_index),
+                                        "room_type": room.room_type.value if room is not None else "",
+                                        "player_state": psn,
+                                        "heal_probability": float(heal_p),
+                                        "roll_value": float(roll),
+                                        "spawned": bool(spawned),
+                                        "hp_percent_before_reward": float(self._player_hp_percent()),
+                                        "heal_evaluation_complete": True,
+                                    },
+                                )
+                                if spawned:
+                                    cx, cy = room.width // 2, room.height // 2
+                                    wx, wy = room.world_pos_for_tile(cx, cy)
+                                    self._rewards.append(
+                                        {
+                                            "pos": (wx, wy),
+                                            "collected": False,
+                                            "kind": "room_clear_heal_orb",
+                                        }
+                                    )
+                        else:
+                            self.ai_logger.log_event(
+                                "heal_drop_skipped",
+                                {
+                                    "run_id": self._run_id,
+                                    "run_seed": int(self._metrics.run.run_seed),
+                                    "room_index": int(ri),
+                                    "biome_index": int(bidx),
+                                    "room_type": rt.value if rt is not None else "",
+                                    "reason": "not_middle_room",
+                                },
+                            )
         # Phase 7: Safe Room heal object position (one corner of playable area); set once when in Safe Room
         if self._room_controller is not None and room is not None and room.room_type == RoomType.SAFE:
             if self._safe_room_heal_pos is None:
@@ -2247,7 +2705,9 @@ class GameScene(BaseScene):
 
         # Phase 6: on mini boss death spawn reward and start door-unlock delay
         if self._mini_boss_death_pos is not None:
-            self._rewards.append({"pos": self._mini_boss_death_pos, "collected": False})
+            self._rewards.append(
+                {"pos": self._mini_boss_death_pos, "collected": False, "kind": "mini_boss_reward"}
+            )
             self._door_unlock_timer = MINI_BOSS_DOOR_UNLOCK_DELAY_SEC
             self._mini_boss_death_pos = None
 
@@ -2297,12 +2757,15 @@ class GameScene(BaseScene):
             if next_idx is not None:
                 total = total_campaign_rooms()
                 if self._room_controller.current_room_index == total - 1:
+                    self._rl_log_session_end("victory")
                     self._victory_phase = True
                     self._victory_timer = 0.0
                     return
                 if next_idx < total:
-                    self._metrics.end_room(self._player_hp_percent())
-                    self._update_player_model_after_room_end()
+                    # Combat rooms already call end_room + log at clear; avoid a second room_end on exit.
+                    if self._metrics.run.room_active_flag:
+                        self._metrics.end_room(self._player_hp_percent())
+                        self._update_player_model_after_room_end()
                     self._room_controller.load_room(next_idx)
                     self._metrics_pending_room_start = True
                     room = self._room_controller.current_room
@@ -2357,11 +2820,31 @@ class GameScene(BaseScene):
                 dy = (player_rect.centery - ry)
                 if math.hypot(dx, dy) <= reward_radius + max(player_rect.w, player_rect.h) / 2:
                     r["collected"] = True
+                    hp_before = self._player_hp_percent()
                     base_max_hp = getattr(self._player, "base_max_hp", 100.0)
-                    heal_pct = FINAL_BOSS_REWARD_HEAL_PERCENT if (room is not None and room.room_type == RoomType.FINAL_BOSS) else MINI_BOSS_REWARD_HEAL_PERCENT
+                    heal_pct = (
+                        FINAL_BOSS_REWARD_HEAL_PERCENT
+                        if (room is not None and room.room_type == RoomType.FINAL_BOSS)
+                        else self._difficulty_params.rewards.mini_boss_reward_heal_percent
+                    )
                     heal_amt = float(base_max_hp) * heal_pct
                     applied = self._player.apply_incoming_heal(heal_amt)
                     self._metrics.record_healing(applied)
+                    hp_after = self._player_hp_percent()
+                    if room is not None and room.room_type == RoomType.FINAL_BOSS:
+                        _hsrc = "final_boss_reward"
+                    elif r.get("kind") == "mini_boss_reward":
+                        _hsrc = "mini_boss_reward"
+                    elif r.get("kind") == "room_clear_heal_orb":
+                        _hsrc = "room_clear_heal_orb"
+                    else:
+                        _hsrc = "reward_orb"
+                    self._rl_log_heal_applied(
+                        heal_source=_hsrc,
+                        hp_before=hp_before,
+                        hp_after=hp_after,
+                        heal_amount_applied=float(applied),
+                    )
 
         # Intra-room HP % extrema for metrics (min/max during room → hp_lost_in_room / room_result at end_room)
         if self._player is not None and self._metrics.run.room_active_flag:
@@ -2400,13 +2883,18 @@ class GameScene(BaseScene):
         elif self._death_phase == "freeze":
             # Screen is frozen; no updates to player/enemies.
             if self._death_timer >= FREEZE_DURATION:
+                self._rl_log_session_end("defeat")
                 self._death_phase = "game_over"
                 self._death_timer = 0.0
         elif self._death_phase == "game_over":
             # Just wait while overlay is shown (draw handles visuals).
             if self._death_timer >= GAME_OVER_DURATION:
-                self.reset()
-                self.scene_manager.switch_to_start()
+                if not getattr(self, "_rl_controlled", False):  # RL hook (reversible)
+                    self.reset(for_new_run=False)
+                    self.scene_manager.switch_to_start()
+                else:
+                    # RL-only path: remain on defeat screen until env.reset()
+                    self._death_timer = GAME_OVER_DURATION
         # Even during death, keep enemies separated visually and advance VFX.
         self._enforce_enemy_separation()
         self._enforce_player_enemy_separation()
@@ -3218,6 +3706,9 @@ class GameScene(BaseScene):
                 pygame.draw.rect(screen, BOSS_ENEMY_HP_BAR_COLOR, fill_rect)
 
     def draw(self, screen: pygame.Surface, camera_offset: tuple[float, float] | None = None) -> None:
+        # RL hook (reversible): headless Gymnasium stepping skips all drawing.
+        if getattr(self, "_rl_skip_draw", False):
+            return
         # Fill screen with floor tile to avoid black borders around centered rooms.
         self._fill_fullscreen_floor(screen)
         co = camera_offset if camera_offset is not None else self.camera_offset
@@ -3859,13 +4350,31 @@ class GameScene(BaseScene):
             if ms is not None:
                 screen.blit(ms, self._pause_main_rect.topleft)
 
+    def _rl_dispatch_interaction_keydown(self, key: int) -> None:
+        """RL-only: one KEYDOWN through handle_event (E/F/H/1–4); discard key so _keys_held stays clean."""
+        if not getattr(self, "_rl_controlled", False):
+            return
+        if self._paused:
+            return
+        before_i = int(getattr(self._metrics.run, "rl_interact_success_count", 0))
+        ev = pygame.event.Event(pygame.KEYDOWN, key=key)
+        self.handle_event(ev)
+        self._keys_held.discard(key)
+        # Tiny anti-spam: E with no successful interact (metrics unchanged).
+        if key == pygame.K_e and int(getattr(self._metrics.run, "rl_interact_success_count", 0)) == before_i:
+            self._metrics.record_rl_interact_failed_e()
+
     def handle_event(self, event: pygame.event.Event) -> bool:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_F3:
             self._debug_overlay.toggle()
             return True
-        # Room 0 story panel: E or ESC closes (Requirements §9.4.2)
+        # Room 0 story panel: E or ESC closes (Requirements §9.4.2); E counts as RL interact success.
         if self._room0_story_panel_open and event.type == pygame.KEYDOWN:
-            if event.key in (pygame.K_e, pygame.K_ESCAPE):
+            if event.key == pygame.K_e:
+                self._room0_story_panel_open = False
+                self._metrics.record_rl_interact_success()
+                return True
+            if event.key == pygame.K_ESCAPE:
                 self._room0_story_panel_open = False
                 return True
         # In-run pause menu: only Resume + ESC (same logical mouse mapping as main menu)
@@ -3920,9 +4429,20 @@ class GameScene(BaseScene):
                         _srm = biome4_safe_room_heal_multiplier(_psnh)
                     else:
                         _srm = 1.0
-                    heal_amount = float(base_max_hp) * SAFE_ROOM_HEAL_PERCENT * _srm
+                    heal_amount = float(base_max_hp) * self._difficulty_params.rewards.safe_room_heal_percent * _srm
+                    _hp_before_safe = self._player_hp_percent()
                     applied = self._player.apply_incoming_heal(heal_amount)
-                    self._metrics.record_healing(applied)
+                    if applied > 0.0:
+                        self._metrics.record_healing(applied)
+                        self._metrics.record_rl_safe_room_heal_success()
+                    else:
+                        self._metrics.record_rl_safe_room_heal_failed()
+                    self._rl_log_heal_applied(
+                        heal_source="safe_room",
+                        hp_before=_hp_before_safe,
+                        hp_after=self._player_hp_percent(),
+                        heal_amount_applied=float(applied),
+                    )
                     self._safe_room_heal_done = True
                     self._safe_room_upgrade_pending = True
                     pc_up = self._safe_room_upgrade_pick_count_for_current_room()
@@ -3934,12 +4454,26 @@ class GameScene(BaseScene):
                     return True
             # Reserve heal: H applies front of FIFO reserve_heal_pool (exact HP), cooldown anti-spam
             if event.key == pygame.K_h and self._player is not None:
+                _rl = bool(getattr(self, "_rl_controlled", False))
                 if float(getattr(self._player, "reserve_heal_cooldown_timer", 0.0)) <= 0.0:
+                    _hp_before_r = self._player_hp_percent()
                     healed = self._player.try_consume_reserve_heal()
                     if healed > 0.0:
                         self._metrics.record_healing(healed)
+                        if _rl:
+                            self._metrics.record_rl_reserve_heal_success()
                         self._player.reserve_heal_cooldown_timer = float(RESERVE_HEAL_USE_COOLDOWN_SEC)
                         self._heal_flash_timer = 0.35
+                        self._rl_log_heal_applied(
+                            heal_source="reserve_heal",
+                            hp_before=_hp_before_r,
+                            hp_after=self._player_hp_percent(),
+                            heal_amount_applied=float(healed),
+                        )
+                    elif _rl:
+                        self._metrics.record_rl_reserve_heal_failed()
+                elif _rl:
+                    self._metrics.record_rl_reserve_heal_failed()
                 return True
             # Room 0 altar: E to open story panel when near (Requirements §9.4.1)
             if event.key == pygame.K_e and self._room0_altar_pos and self._player is not None:
@@ -3952,6 +4486,7 @@ class GameScene(BaseScene):
                     ax, ay = self._room0_altar_pos
                     if math.hypot(px - ax, py - ay) <= ALTAR_INTERACTION_RADIUS_PX:
                         self._room0_story_panel_open = True
+                        self._metrics.record_rl_interact_success()
                         return True
             if event.key == pygame.K_SPACE:
                 self._dash_request = True
@@ -3985,15 +4520,14 @@ class GameScene(BaseScene):
                 choice = (event.key - pygame.K_1) + 1  # 1, 2, 3, or 4
                 if choice not in self._safe_room_biome4_chosen:
                     if choice == 1:
-                        self._player.base_max_hp *= SAFE_ROOM_UPGRADE_HEALTH_MULT
-                        self._player.max_hp = self._player.base_max_hp
-                        self._player.hp = min(self._player.hp, self._player.max_hp)
+                        self._player.apply_safe_room_health_upgrade(SAFE_ROOM_UPGRADE_HEALTH_MULT)
                     elif choice == 2:
                         self._player.move_speed_mult = SAFE_ROOM_UPGRADE_SPEED_MULT
                     elif choice == 3:
                         self._player.attack_damage_mult = SAFE_ROOM_UPGRADE_ATTACK_MULT
                     elif choice == 4:
                         self._player.damage_taken_mult = SAFE_ROOM_UPGRADE_DEFENCE_MULT
+                    self._metrics.record_upgrade("safe_room", f"b4_{choice}")
                     self._safe_room_biome4_chosen.add(choice)
                     self._safe_room_upgrade_picks_remaining = max(0, self._safe_room_upgrade_picks_remaining - 1)
                     if len(self._safe_room_biome4_chosen) >= 2:
@@ -4013,13 +4547,12 @@ class GameScene(BaseScene):
             ):
                 choice = (event.key - pygame.K_1) + 1  # 1, 2, or 3
                 if choice == 1:  # Health +20% max HP
-                    self._player.base_max_hp *= SAFE_ROOM_UPGRADE_HEALTH_MULT
-                    self._player.max_hp = self._player.base_max_hp
-                    self._player.hp = min(self._player.hp, self._player.max_hp)
+                    self._player.apply_safe_room_health_upgrade(SAFE_ROOM_UPGRADE_HEALTH_MULT)
                 elif choice == 2:  # Speed +10%
                     self._player.move_speed_mult = SAFE_ROOM_UPGRADE_SPEED_MULT
                 elif choice == 3:  # Attack +12%
                     self._player.attack_damage_mult = SAFE_ROOM_UPGRADE_ATTACK_MULT
+                self._metrics.record_upgrade("safe_room", f"b3_{choice}")
                 self._safe_room_upgrade_chosen_this_room = True
                 self._safe_room_upgrade_picks_remaining = 0
                 self._safe_room_upgrade_pending = False

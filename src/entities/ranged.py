@@ -33,8 +33,8 @@ class Ranged(EnemyBase):
     Reuses existing enemy update pipeline and hitbox/combat systems.
     """
 
-    def __init__(self, world_pos: Tuple[float, float], elite: bool = False):
-        super().__init__("ranged", world_pos, elite=elite)
+    def __init__(self, world_pos: Tuple[float, float], elite: bool = False, **kwargs):
+        super().__init__("ranged", world_pos, elite=elite, **kwargs)
         self._pending_projectile = None
 
     def _ensure_animations_loaded(self) -> None:

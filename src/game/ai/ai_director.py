@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from game.ai.difficulty_params import UPGRADE_BIAS_DEFAULT
+from game.ai.difficulty_params import UPGRADE_BIAS_DEFAULT, DifficultyParams, load_difficulty_params_json
 from game.ai.player_model import PlayerStateClass
 
 
@@ -74,7 +74,8 @@ class AIDirector:
     No randomness, smoothing, or gameplay mutations.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, params: DifficultyParams | None = None) -> None:
+        self._params: DifficultyParams = params or load_difficulty_params_json()
         self.difficulty_modifier: float = 1.0
         self.enemy_adjustment: int = 0
         self.reinforcement_chance: float = 0.0
@@ -103,6 +104,11 @@ class AIDirector:
         self._ctx_room_idx: int | None = None
         self._ctx_biome_idx: int | None = None
 
+    @staticmethod
+    def _reinforcement_biome234(r1: float) -> float:
+        """Biomes 2–4: +0.05 vs Biome 1 reinforcement for the same player state (legacy curve)."""
+        return round(min(1.0, float(r1) + 0.05), 12)
+
     def update_room_context(self, room_idx: int | None, biome_index: int | None) -> None:
         """Room index + biome for trial-phase and debug (no gameplay side effects by itself)."""
         self._ctx_room_idx = int(room_idx) if room_idx is not None else None
@@ -121,69 +127,73 @@ class AIDirector:
         return int(self.enemy_adjustment)
 
     def update(self, player_state: PlayerStateClass | None) -> None:
+        dr = self._params.director
         if player_state == PlayerStateClass.STRUGGLING:
-            self.difficulty_modifier = 0.85
-            self.enemy_adjustment = -1
-            self.reinforcement_chance = 0.0
+            self.difficulty_modifier = float(dr.difficulty_modifier.struggling)
+            self.enemy_adjustment = int(dr.enemy_adjustment.struggling)
+            self.reinforcement_chance = float(dr.reinforcement_chance.struggling)
             self.reward_bias = "more_help"
             self.hazard_bias = "lower"
             self.composition_bias = "lighter"
             self.last_player_state_name = "STRUGGLING"
             self.pressure_level = "low"
             self.composition_bias_b2 = "lighter"
-            self.reinforcement_chance_b2 = 0.05
+            r1 = self.reinforcement_chance
+            self.reinforcement_chance_b2 = self._reinforcement_biome234(r1)
             self.hazard_tune_factor_b2 = 0.88
             self.composition_bias_b3 = "safe"
             self.ranged_bias_b3 = "low"
-            self.reinforcement_chance_b3 = 0.05
+            self.reinforcement_chance_b3 = self._reinforcement_biome234(r1)
             self.hazard_tune_factor_b3 = 0.85
             self.composition_bias_b4 = "safe"
             self.boss_pressure = "low"
             self.pacing_bias = "relaxed"
-            self.reinforcement_chance_b4 = 0.05
+            self.reinforcement_chance_b4 = self._reinforcement_biome234(r1)
             self.hazard_tune_factor_b4 = 0.85
         elif player_state == PlayerStateClass.DOMINATING:
-            self.difficulty_modifier = 1.15
-            self.enemy_adjustment = 1
-            self.reinforcement_chance = 0.3
+            self.difficulty_modifier = float(dr.difficulty_modifier.dominating)
+            self.enemy_adjustment = int(dr.enemy_adjustment.dominating)
+            self.reinforcement_chance = float(dr.reinforcement_chance.dominating)
             self.reward_bias = "lower_help"
             self.hazard_bias = "higher"
             self.composition_bias = "harder"
             self.last_player_state_name = "DOMINATING"
             self.pressure_level = "high"
             self.composition_bias_b2 = "aggressive"
-            self.reinforcement_chance_b2 = 0.35
+            r1 = self.reinforcement_chance
+            self.reinforcement_chance_b2 = self._reinforcement_biome234(r1)
             self.hazard_tune_factor_b2 = 1.12
             self.composition_bias_b3 = "aggressive"
             self.ranged_bias_b3 = "high"
-            self.reinforcement_chance_b3 = 0.35
+            self.reinforcement_chance_b3 = self._reinforcement_biome234(r1)
             self.hazard_tune_factor_b3 = 1.15
             self.composition_bias_b4 = "aggressive"
             self.boss_pressure = "high"
             self.pacing_bias = "intense"
-            self.reinforcement_chance_b4 = 0.35
+            self.reinforcement_chance_b4 = self._reinforcement_biome234(r1)
             self.hazard_tune_factor_b4 = 1.15
         else:
             # STABLE or unknown / None
-            self.difficulty_modifier = 1.0
-            self.enemy_adjustment = 0
-            self.reinforcement_chance = 0.1
+            self.difficulty_modifier = float(dr.difficulty_modifier.stable)
+            self.enemy_adjustment = int(dr.enemy_adjustment.stable)
+            self.reinforcement_chance = float(dr.reinforcement_chance.stable)
             self.reward_bias = "normal"
             self.hazard_bias = "normal"
             self.composition_bias = "normal"
             self.last_player_state_name = "STABLE" if player_state == PlayerStateClass.STABLE else None
             self.pressure_level = "medium"
             self.composition_bias_b2 = "balanced"
-            self.reinforcement_chance_b2 = 0.15
+            r1 = self.reinforcement_chance
+            self.reinforcement_chance_b2 = self._reinforcement_biome234(r1)
             self.hazard_tune_factor_b2 = 1.0
             self.composition_bias_b3 = "balanced"
             self.ranged_bias_b3 = "medium"
-            self.reinforcement_chance_b3 = 0.15
+            self.reinforcement_chance_b3 = self._reinforcement_biome234(r1)
             self.hazard_tune_factor_b3 = 1.0
             self.composition_bias_b4 = "balanced"
             self.boss_pressure = "medium"
             self.pacing_bias = "normal"
-            self.reinforcement_chance_b4 = 0.15
+            self.reinforcement_chance_b4 = self._reinforcement_biome234(r1)
             self.hazard_tune_factor_b4 = 1.0
 
     def capture_encounter_snapshot(self) -> EncounterDirectorSnapshot:
