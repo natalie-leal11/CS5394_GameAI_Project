@@ -103,7 +103,7 @@ class Biome3MiniBoss:
     then sets _pending_adds = True so game_scene spawns 2 Swarm + 1 Flanker in a ring.
     """
 
-    def __init__(self, world_pos: Tuple[float, float], elite: bool = False) -> None:
+    def __init__(self, world_pos: Tuple[float, float], elite: bool = False, **_unused) -> None:
         del elite
         self.enemy_type = "mini_boss_3"
         self.world_pos = (float(world_pos[0]), float(world_pos[1]))

@@ -57,6 +57,14 @@ def _advance_until_attack_finishes(p: Player, max_frames: int = 400) -> str:
     return p.state
 
 
+def _advance_until_short_cooldown_cleared(p: Player, max_frames: int = 360) -> None:
+    """After a short attack, real cooldown must elapse before another swing (see PLAYER_SHORT_ATTACK_COOLDOWN_SEC)."""
+    for _ in range(max_frames):
+        if float(getattr(p, "short_attack_cooldown_timer", 0.0)) <= 1e-9:
+            return
+        _tick(p, short=False)
+
+
 def test_1_idle_single_click_starts_attack_immediately():
     """Stand still: one LMB (short_req) -> attack_short immediately."""
     p = _loaded_player()
@@ -76,6 +84,7 @@ def test_2_slow_repeated_clicks_each_cause_one_attack():
         assert p.state in ("idle", "walk") or p.state in ("attack_short", "attack_long")
         if p.state in ("attack_short", "attack_long"):
             _advance_until_attack_finishes(p)
+            _advance_until_short_cooldown_cleared(p)
         p._set_state("idle")
         p._still_timer = 0.0
         before = p.state
@@ -83,6 +92,7 @@ def test_2_slow_repeated_clicks_each_cause_one_attack():
         assert p.state == "attack_short", f"expected swing from idle, got {before} -> {p.state}"
         swings += 1
         _advance_until_attack_finishes(p)
+        _advance_until_short_cooldown_cleared(p)
     assert swings == 5
 
 
@@ -98,6 +108,7 @@ def test_3_rapid_clicks_during_lock_buffer_once_one_followup_swing():
     assert p._pending_short_attack is True
     # Swing finished inside the loop -> idle; buffer still holds one follow-up swing.
     assert p.state in ("idle", "walk")
+    _advance_until_short_cooldown_cleared(p)
     p._set_state("idle")
     _tick(p, short=False)
     assert p.state == "attack_short"
@@ -113,6 +124,7 @@ def test_4_hold_movement_and_click_each_direction():
         assert p.state == "attack_short", f"failed for key {key}"
         assert p._pending_short_attack is False
         _advance_until_attack_finishes(p)
+        _advance_until_short_cooldown_cleared(p)
         _tick(p, keys={key}, short=False)
         assert p.velocity_xy[0] != 0.0 or p.velocity_xy[1] != 0.0
 
@@ -125,6 +137,7 @@ def test_5_hold_movement_spam_short_requests_no_silent_loss_single_buffer():
         _tick(p, keys={pygame.K_w}, short=True)
     assert p._pending_short_attack is True
     _advance_until_attack_finishes(p)
+    _advance_until_short_cooldown_cleared(p)
     p._set_state("idle")
     _tick(p, keys={pygame.K_w}, short=False)
     assert p.state == "attack_short"
@@ -138,6 +151,7 @@ def test_6_second_click_during_first_swing_buffered_then_auto_swings():
     _tick(p, short=True)
     assert p._pending_short_attack is True
     _advance_until_attack_finishes(p)
+    _advance_until_short_cooldown_cleared(p)
     p._set_state("idle")
     _tick(p, short=False)
     assert p.state == "attack_short"
@@ -163,10 +177,12 @@ def test_8_after_buffered_swing_stops_no_ghost_pending():
     p._set_state("attack_short")
     _tick(p, short=True)
     _advance_until_attack_finishes(p)
+    _advance_until_short_cooldown_cleared(p)
     p._set_state("idle")
     _tick(p, short=False)
     assert p.state == "attack_short"
     _advance_until_attack_finishes(p)
+    _advance_until_short_cooldown_cleared(p)
     p._set_state("idle")
     for _ in range(30):
         _tick(p, short=False)

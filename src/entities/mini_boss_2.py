@@ -36,7 +36,7 @@ class MiniBoss2:
     Same behavior as MiniBoss; separate class for Biome 2 identity.
     """
 
-    def __init__(self, world_pos: Tuple[float, float], elite: bool = False) -> None:
+    def __init__(self, world_pos: Tuple[float, float], elite: bool = False, **_unused) -> None:
         del elite  # Mini boss has no elite variant
         self.enemy_type = "mini_boss_2"
         self.world_pos = (float(world_pos[0]), float(world_pos[1]))

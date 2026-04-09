@@ -13,11 +13,13 @@ import random
 import pygame
 
 from game.config import SEED, LOGICAL_W, LOGICAL_H, FPS, BACKGROUND_COLOR
+from game.ai.difficulty_params import load_difficulty_params_json
 from game.scene_manager import SceneManager
 
 
 def main():
     random.seed(SEED)
+    difficulty_params = load_difficulty_params_json()
     pygame.init()
     # Half screen: window is 50% of display width and height.
     info = pygame.display.Info()
@@ -29,7 +31,7 @@ def main():
         screen = pygame.display.set_mode((LOGICAL_W, LOGICAL_H), pygame.RESIZABLE)
     pygame.display.set_caption("Dungeon Geeks")
     clock = pygame.time.Clock()
-    scene_manager = SceneManager()
+    scene_manager = SceneManager(difficulty_params=difficulty_params)
     scene_manager.init()
 
     # Logical buffer: always 960x640; scaled to window each frame.
@@ -40,6 +42,7 @@ def main():
         dt = clock.tick(FPS) / 1000.0
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                scene_manager.on_app_quit()
                 running = False
                 break
             scene_manager.handle_event(event)

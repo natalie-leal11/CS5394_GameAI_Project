@@ -7,7 +7,11 @@ from game.ai.ai_director import (
     SafeRoomDirective,
     VariationDirective,
 )
-from game.ai.difficulty_params import DifficultyParams
+from game.ai.difficulty_params import (
+    DifficultyParams,
+    PlayerModelTuningParams,
+    load_difficulty_params_json,
+)
 from game.ai.metrics_tracker import MetricsTracker
 from game.ai.player_model import (
     PlayerClassificationResult,
@@ -21,6 +25,8 @@ __all__ = [
     "AIDirector",
     "DifficultyParams",
     "EncounterDirective",
+    "PlayerModelTuningParams",
+    "load_difficulty_params_json",
     "EncounterDirectorSnapshot",
     "MetricsTracker",
     "PlayerClassificationResult",

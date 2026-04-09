@@ -35,8 +35,9 @@ class MiniBoss:
     Phase 6 mini boss. 96×96, confined to room. Combat via attack_01/attack_02 (no contact damage).
     """
 
-    def __init__(self, world_pos: Tuple[float, float], elite: bool = False) -> None:
+    def __init__(self, world_pos: Tuple[float, float], elite: bool = False, **_unused) -> None:
         del elite  # Mini boss has no elite variant
+        # _unused: SpawnSystem passes elite_hp_mult / elite_damage_mult for EnemyBase; mini bosses ignore them.
         self.enemy_type = "mini_boss"
         self.world_pos = (float(world_pos[0]), float(world_pos[1]))
         self.state = "idle"

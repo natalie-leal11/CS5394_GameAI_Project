@@ -1,0 +1,39 @@
+{
+  "player_model": {
+    "struggling_hp_critical_percent": 25.0,
+    "struggling_hp_weak_percent": 40.0,
+    "dominating_hp_min_percent": 70.0,
+    "dominating_avg_hp_loss_max_percent": 15.0
+  },
+  "director": {
+    "difficulty_modifier": {
+      "struggling": 0.85,
+      "stable": 1.0,
+      "dominating": 1.15
+    },
+    "enemy_adjustment": {
+      "struggling": -1,
+      "stable": 0,
+      "dominating": 1
+    },
+    "reinforcement_chance": {
+      "struggling": 0.0,
+      "stable": 0.1,
+      "dominating": 0.3
+    }
+  },
+  "rewards": {
+    "heal_drop_base_chance": 0.25,
+    "safe_room_heal_percent": 0.30,
+    "mini_boss_reward_heal_percent": 0.30
+  },
+  "metrics": {
+    "struggle_hp_loss_percent_threshold": 30.0,
+    "dominating_hp_loss_percent_threshold": 5.0,
+    "spike_damage_threshold": 30.0
+  },
+  "combat": {
+    "elite_hp_multiplier": 1.4,
+    "elite_damage_multiplier": 1.2
+  }
+}

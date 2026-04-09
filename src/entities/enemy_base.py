@@ -8,12 +8,9 @@ import pygame
 from game.config import (
     enemy_movement_size_tuple,
     PROJECT_ROOT,
-    HEAVY_UNSTUCK_RETREAT_DURATION_SEC,
-    HEAVY_CLEARANCE_CHASE_PADDING_PX,
-    HEAVY_CLEARANCE_DESPERATION_MULT,
-    HEAVY_REROUTE_CACHE_SEC,
-    HEAVY_CLEARANCE_NON_DIRECT_TOWARD_BLEND,
-    HEAVY_STUCK_TIME_SEC,
+    HEAVY_BRUTE_STUCK_DIST_PX,
+    HEAVY_BRUTE_STUCK_TIME_SEC,
+    HEAVY_BRUTE_UNSTUCK_SPEED_MULT,
     ENEMY_SWARM_SIZE,
     ENEMY_FLANKER_SIZE,
     ENEMY_BRUTE_SIZE,
@@ -63,8 +60,6 @@ from game.config import (
     ENEMY_HEAVY_ATTACK_RADIUS,
     ENEMY_HEAVY_ATTACK_OFFSET,
     ENEMY_HEAVY_ATTACK_COOLDOWN_SEC,
-    DEBUG_HEAVY_MOVE,
-    DEBUG_HEAVY_CLEARANCE,
 )
 from game.asset_loader import load_animation, load_image
 from systems.animation import AnimationState
@@ -73,8 +68,6 @@ from systems.collisions import hitbox_overlap
 # Anti-stuck: movement < this many px for STUCK_FRAME_COUNT frames in a row = stuck
 STUCK_MOVEMENT_THRESHOLD_PX = 3.0
 STUCK_FRAME_COUNT = 20
-# Heavy: require longer stuck time before retreat (0.5–0.8 s)
-STUCK_FRAME_COUNT_HEAVY = max(STUCK_FRAME_COUNT, int(HEAVY_STUCK_TIME_SEC * 60))
 # Random steering when stuck: rotate velocity by ± this many degrees to slide along wall
 STUCK_STEERING_ANGLE_DEG = 70.0
 
@@ -122,19 +115,18 @@ def _get_retreat_direction_away_from_wall(
 
 def update_stuck_tracking(entity, start_pos: Tuple[float, float]) -> None:
     """Update _stuck_frames and _last_world_pos after movement. Call after setting entity.world_pos.
-    Heavy: also count stuck when chasing player but displacement < threshold (e.g. clearance rejected move)."""
+    Heavy uses Brute-style stuck handling (perpendicular sidestep in update, not clearance trap frames)."""
     movement_px = math.hypot(
         entity.world_pos[0] - start_pos[0],
         entity.world_pos[1] - start_pos[1],
     )
     vx, vy = getattr(entity, "velocity_xy", (0.0, 0.0))
     has_velocity = (vx * vx + vy * vy) > 1e-6
-    # Heavy: stuck if (chasing and displacement < threshold) even when velocity was zeroed by clearance
-    is_heavy_chasing = getattr(entity, "_heavy_chasing_this_frame", False)
-    if getattr(entity, "enemy_type", None) == "heavy" and is_heavy_chasing and movement_px < STUCK_MOVEMENT_THRESHOLD_PX:
-        entity._stuck_frames = getattr(entity, "_stuck_frames", 0) + 1
-    elif movement_px < STUCK_MOVEMENT_THRESHOLD_PX and has_velocity:
-        entity._stuck_frames = getattr(entity, "_stuck_frames", 0) + 1
+    if movement_px < STUCK_MOVEMENT_THRESHOLD_PX and has_velocity:
+        if getattr(entity, "enemy_type", None) == "heavy":
+            entity._stuck_frames = 0
+        else:
+            entity._stuck_frames = getattr(entity, "_stuck_frames", 0) + 1
     else:
         entity._stuck_frames = 0
     entity._last_world_pos = entity.world_pos
@@ -374,17 +366,27 @@ class EnemyBase:
     - enemies clamped to simple play area rectangle.
     """
 
-    def __init__(self, enemy_type: str, world_pos: Tuple[float, float], elite: bool = False):
+    def __init__(
+        self,
+        enemy_type: str,
+        world_pos: Tuple[float, float],
+        elite: bool = False,
+        *,
+        elite_hp_mult: float | None = None,
+        elite_damage_mult: float | None = None,
+    ):
         assert enemy_type in ENEMY_TYPES
         self.enemy_type = enemy_type
         self.world_pos = (float(world_pos[0]), float(world_pos[1]))
         self.state = "idle"
         self.inactive = False
 
+        hp_m = float(elite_hp_mult) if elite_hp_mult is not None else float(ENEMY_ELITE_HP_MULT)
+        dmg_m = float(elite_damage_mult) if elite_damage_mult is not None else float(ENEMY_ELITE_DAMAGE_MULT)
         base_hp, base_damage, move_speed = _enemy_stats_for_type(enemy_type)
         if elite:
-            base_hp *= ENEMY_ELITE_HP_MULT
-            base_damage *= ENEMY_ELITE_DAMAGE_MULT
+            base_hp *= hp_m
+            base_damage *= dmg_m
         self.max_hp = float(base_hp)
         self.hp = float(base_hp)
         self.damage = float(base_damage)
@@ -498,197 +500,69 @@ class EnemyBase:
         stop_dist = _enemy_stop_distance(self.enemy_type)
         engage_dist = _enemy_effective_stop_distance(self.enemy_type)
 
-        # Heavy: record "chasing" for trap detection (low displacement for ~0.6s while chasing = stuck)
-        if self.enemy_type == "heavy":
-            self._heavy_chasing_this_frame = dist > engage_dist
+        # Heavy: same core path as Brute (direct chase + wall slide). Deterministic perpendicular sidestep
+        # when stalled (_heavy_brute_stuck_t) instead of random stuck steering.
+        _heavy_brute_move = self.enemy_type == "heavy"
 
-        if dist > engage_dist:
+        did_unstuck = False
+        # Heavy: after ~0.3s of near-zero progress while chasing, one deterministic perpendicular sidestep
+        if (
+            _heavy_brute_move
+            and dist > engage_dist
+            and float(getattr(self, "_heavy_brute_stuck_t", 0.0)) >= HEAVY_BRUTE_STUCK_TIME_SEC
+        ):
             if dist > 1e-3:
                 nx = dx / dist
                 ny = dy / dist
-                vx = nx * self.move_speed
-                vy = ny * self.move_speed
-                self.facing = (nx, ny)
-                self._set_state("walk")
             else:
-                self._set_state("idle")
-        else:
-            # Inside attack radius: stop moving and switch to attack/windup.
-            vx = vy = 0.0
-            self._set_state("attack")
-
-        # Heavy: if in retreat phase (deterministic unstuck), use retreat only when outside attack range
-        if (
-            self.enemy_type == "heavy"
-            and getattr(self, "_unstuck_retreat_timer", 0) > 0
-            and room_rect is not None
-            and dist > engage_dist
-        ):
-            dx, dy = getattr(self, "_unstuck_retreat_direction", (1.0, 0.0))
-            vx = dx * self.move_speed
-            vy = dy * self.move_speed
-            self.facing = (dx, dy)
+                nx, ny = 1.0, 0.0
+            flip = int(getattr(self, "_heavy_brute_unstuck_flip", 0)) & 1
+            if flip == 0:
+                px_, py_ = -ny, nx
+            else:
+                px_, py_ = ny, -nx
+            m = float(HEAVY_BRUTE_UNSTUCK_SPEED_MULT)
+            vx = px_ * self.move_speed * m
+            vy = py_ * self.move_speed * m
+            self.facing = (px_, py_)
             self._set_state("walk")
-        else:
-            # Anti-stuck: wall collision = immediate slide; stuck = Heavy retreat or random steering
-            wall_collision = getattr(self, "_wall_collision_this_frame", False)
-            stuck_frames = getattr(self, "_stuck_frames", 0)
-            has_velocity = (vx * vx + vy * vy) > 1e-6
-            if wall_collision and has_velocity:
-                # Slide along wall (fixed 45° nudge)
-                speed = math.hypot(vx, vy)
-                cos45 = 0.70710678
-                ovx, ovy = vx, vy
-                vx = ovx * cos45 - ovy * cos45
-                vy = ovx * cos45 + ovy * cos45
-                n = math.hypot(vx, vy)
-                if n > 1e-6:
-                    vx, vy = vx * speed / n, vy * speed / n
-                setattr(self, "_wall_collision_this_frame", False)
-            elif stuck_frames >= (STUCK_FRAME_COUNT_HEAVY if self.enemy_type == "heavy" else STUCK_FRAME_COUNT) and (has_velocity or self.enemy_type == "heavy"):
-                # Heavy: trigger escape even when velocity was zeroed (trap: chasing but can't move)
-                if self.enemy_type == "heavy" and (room_rect is not None or heavy_retreat_cb is not None):
-                    if getattr(self, "_unstuck_retreat_timer", 0) <= 0:
-                        self._unstuck_retreat_timer = HEAVY_UNSTUCK_RETREAT_DURATION_SEC
-                        if callable(heavy_retreat_cb):
-                            self._unstuck_retreat_direction = heavy_retreat_cb()
-                        elif room_rect is not None:
-                            self._unstuck_retreat_direction = _get_retreat_direction_away_from_wall(
-                                self.world_pos, room_rect
-                            )
-                        else:
-                            self._unstuck_retreat_direction = (1.0, 0.0)
-                    vx = self._unstuck_retreat_direction[0] * self.move_speed
-                    vy = self._unstuck_retreat_direction[1] * self.move_speed
-                else:
-                    vx, vy = apply_anti_stuck_velocity(self, vx, vy)
-
-        # Heavy: deterministic obstacle avoidance — try direct, then slide X, slide Y, perpendiculars; cache reroute.
-        # Uses HEAVY_CLEARANCE_CHASE_PADDING_PX (tighter than spawn) + desperation passes so we rarely zero velocity while chasing.
-        if (
-            self.enemy_type == "heavy"
-            and callable(heavy_clearance_cb)
-            and dist > engage_dist
-            and getattr(self, "_unstuck_retreat_timer", 0) <= 0
-        ):
-            mw, mh = self.movement_size
-            padding_chase = float(HEAVY_CLEARANCE_CHASE_PADDING_PX)
-            padding_pass2 = max(3.0, padding_chase * float(HEAVY_CLEARANCE_DESPERATION_MULT))
-
-            def _check_pad(ux: float, uy: float, pad_px: float) -> bool:
-                next_rect = pygame.Rect(
-                    x + ux * self.move_speed * dt - mw / 2,
-                    y + uy * self.move_speed * dt - mh / 2,
-                    mw,
-                    mh,
-                )
-                return heavy_clearance_cb(next_rect, pad_px)
-
-            # 1) If cached reroute still valid, use it (retry with looser padding if needed)
-            reroute_timer = getattr(self, "_heavy_reroute_timer", 0.0)
-            reroute_dir = getattr(self, "_heavy_reroute_direction", None)
-            if reroute_timer > 0 and reroute_dir is not None:
-                ux, uy = reroute_dir
-                reroute_ok = False
-                for pad_try in (padding_chase, padding_pass2, 0.0):
-                    if _check_pad(ux, uy, pad_try):
-                        reroute_ok = True
-                        break
-                if reroute_ok:
-                    vx = ux * self.move_speed
-                    vy = uy * self.move_speed
-                    self.facing = (ux, uy)
+            self._heavy_brute_stuck_t = 0.0
+            self._heavy_brute_unstuck_flip = flip ^ 1
+            did_unstuck = True
+        if not did_unstuck:
+            if dist > engage_dist:
+                if dist > 1e-3:
+                    nx = dx / dist
+                    ny = dy / dist
+                    vx = nx * self.move_speed
+                    vy = ny * self.move_speed
+                    self.facing = (nx, ny)
                     self._set_state("walk")
                 else:
-                    self._heavy_reroute_timer = 0.0
-                    self._heavy_reroute_direction = None
-                    reroute_dir = None
+                    self._set_state("idle")
+            else:
+                # Inside attack radius: stop moving and switch to attack/windup.
+                vx = vy = 0.0
+                self._set_state("attack")
 
-            # 2) If no cached reroute, try candidates in deterministic order at chase → desperation → direct@0
-            if reroute_dir is None or reroute_timer <= 0:
-                nx_val = dx / dist if dist > 1e-3 else 1.0
-                ny_val = dy / dist if dist > 1e-3 else 0.0
-                slide_x = (1.0, 0.0) if dx >= 0 else (-1.0, 0.0)
-                slide_y = (0.0, 1.0) if dy >= 0 else (0.0, -1.0)
-                perp_l = (-ny_val, nx_val)
-                perp_r = (ny_val, -nx_val)
-                candidates = [
-                    (nx_val, ny_val),
-                    slide_x,
-                    slide_y,
-                    perp_l,
-                    perp_r,
-                ]
-                chosen = None
-                chosen_pad = padding_chase
-                for pad_try in (padding_chase, padding_pass2):
-                    for (ux, uy) in candidates:
-                        if _check_pad(ux, uy, pad_try):
-                            chosen = (ux, uy)
-                            chosen_pad = pad_try
-                            break
-                    if chosen is not None:
-                        break
-                if chosen is None and _check_pad(nx_val, ny_val, 0.0):
-                    chosen = (nx_val, ny_val)
-                    chosen_pad = 0.0
-                if chosen is not None:
-                    ux, uy = chosen
-                    chosen_is_direct = abs(ux - nx_val) < 1e-5 and abs(uy - ny_val) < 1e-5
-                    if not chosen_is_direct:
-                        blend_w = float(HEAVY_CLEARANCE_NON_DIRECT_TOWARD_BLEND)
-                        bx = (1.0 - blend_w) * ux + blend_w * nx_val
-                        by = (1.0 - blend_w) * uy + blend_w * ny_val
-                        bn = math.hypot(bx, by)
-                        if bn > 1e-6:
-                            bx, by = bx / bn, by / bn
-                            blended = False
-                            for pad_try in (chosen_pad, padding_pass2, 0.0):
-                                if _check_pad(bx, by, pad_try):
-                                    ux, uy = bx, by
-                                    chosen_pad = pad_try
-                                    blended = True
-                                    break
-                            if not blended:
-                                pass
-                    vx = ux * self.move_speed
-                    vy = uy * self.move_speed
-                    self.facing = (ux, uy)
-                    self._set_state("walk")
-                    if not chosen_is_direct:
-                        self._heavy_reroute_timer = HEAVY_REROUTE_CACHE_SEC
-                        self._heavy_reroute_direction = (ux, uy)
-                else:
-                    vx = vy = 0.0
-                    if DEBUG_HEAVY_CLEARANCE:
-                        print(
-                            "[HEAVY CLEARANCE] reject path=main_candidates "
-                            f"size=({mw},{mh}) chase_pad={padding_chase}px pass2={padding_pass2:.1f} "
-                            f"pos=({x:.1f},{y:.1f}) (all directions blocked at all pads)"
-                        )
-        else:
-            # Heavy during retreat / no multi-candidate pass: single clearance using movement hitbox
-            # (same footprint as main Heavy path and _resolve_entity_wall_collision; not sprite size).
-            if self.enemy_type == "heavy" and callable(heavy_clearance_cb) and (vx * vx + vy * vy) > 1e-6:
-                mw, mh = self.movement_size
-                next_rect = pygame.Rect(x + vx * dt - mw / 2, y + vy * dt - mh / 2, mw, mh)
-                ok_move = False
-                for pad_try in (
-                    float(HEAVY_CLEARANCE_CHASE_PADDING_PX),
-                    max(3.0, float(HEAVY_CLEARANCE_CHASE_PADDING_PX) * float(HEAVY_CLEARANCE_DESPERATION_MULT)),
-                    0.0,
-                ):
-                    if heavy_clearance_cb(next_rect, pad_try):
-                        ok_move = True
-                        break
-                if not ok_move:
-                    if DEBUG_HEAVY_CLEARANCE:
-                        print(
-                            "[HEAVY CLEARANCE] reject path=fallback "
-                            f"size=({mw},{mh}) pad_tried up to chase/desperation/0 "
-                            f"pos=({x:.1f},{y:.1f}) vel=({vx:.1f},{vy:.1f})"
-                        )
-                    vx = vy = 0.0
+        # Anti-stuck: wall collision = immediate slide; stuck = random steering (Brute etc.; Heavy uses sidestep above)
+        wall_collision = getattr(self, "_wall_collision_this_frame", False)
+        stuck_frames = getattr(self, "_stuck_frames", 0)
+        has_velocity = (vx * vx + vy * vy) > 1e-6
+        if wall_collision and has_velocity:
+            # Slide along wall (fixed 45° nudge)
+            speed = math.hypot(vx, vy)
+            cos45 = 0.70710678
+            ovx, ovy = vx, vy
+            vx = ovx * cos45 - ovy * cos45
+            vy = ovx * cos45 + ovy * cos45
+            n = math.hypot(vx, vy)
+            if n > 1e-6:
+                vx, vy = vx * speed / n, vy * speed / n
+            setattr(self, "_wall_collision_this_frame", False)
+        elif stuck_frames >= STUCK_FRAME_COUNT and has_velocity:
+            if not _heavy_brute_move:
+                vx, vy = apply_anti_stuck_velocity(self, vx, vy)
 
         self.velocity_xy = (vx, vy)
 
@@ -735,21 +609,19 @@ class EnemyBase:
                 y = py + ny * target_dist
                 self.world_pos = (x, y)
 
-        update_stuck_tracking(self, start_pos)
-
-        if self.enemy_type == "heavy" and DEBUG_HEAVY_MOVE:
-            sx, sy = self.world_pos
-            print(
-                f"[MOVE DEBUG] enemy=heavy stuck={getattr(self, '_stuck_frames', 0)} "
-                f"pos=({sx:.1f},{sy:.1f})"
+        if _heavy_brute_move and dist > engage_dist and not did_unstuck:
+            movement_px_brute = math.hypot(
+                self.world_pos[0] - start_pos[0],
+                self.world_pos[1] - start_pos[1],
             )
+            if movement_px_brute < HEAVY_BRUTE_STUCK_DIST_PX:
+                self._heavy_brute_stuck_t = float(getattr(self, "_heavy_brute_stuck_t", 0.0)) + dt
+            else:
+                self._heavy_brute_stuck_t = 0.0
+        elif _heavy_brute_move:
+            self._heavy_brute_stuck_t = 0.0
 
-        # Heavy: tick down retreat timer and reroute cache (deterministic unstuck / obstacle avoid)
-        if self.enemy_type == "heavy":
-            if getattr(self, "_unstuck_retreat_timer", 0) > 0:
-                self._unstuck_retreat_timer = max(0.0, self._unstuck_retreat_timer - dt)
-            if getattr(self, "_heavy_reroute_timer", 0) > 0:
-                self._heavy_reroute_timer = max(0.0, self._heavy_reroute_timer - dt)
+        update_stuck_tracking(self, start_pos)
 
         # Contact damage removed per Phase 4 decision: damage will come only from
         # explicit attack hitboxes/projectiles (no touch damage).

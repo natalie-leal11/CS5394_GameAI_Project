@@ -66,6 +66,8 @@ def test_short_attack_buffers_while_attack_short_locked_then_swings_next_opportu
     assert p.state == "attack_short"
     # Simulate swing finished: idle, still pending
     p._set_state("idle")
+    # Short-attack GCD is real; clear for this buffer-only test (no animation timing).
+    p.short_attack_cooldown_timer = 0.0
     p.update(
         1 / 60.0,
         set(),

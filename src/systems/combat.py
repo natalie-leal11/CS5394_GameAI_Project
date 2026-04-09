@@ -11,6 +11,9 @@ from entities.mini_boss_2 import MiniBoss2
 from game.config import (
     PLAYER_SHORT_ATTACK_DAMAGE,
     PLAYER_LONG_ATTACK_DAMAGE,
+    PLAYER_DAMAGE_MULT_NORMAL,
+    PLAYER_DAMAGE_MULT_MINIBOSS,
+    PLAYER_DAMAGE_MULT_FINAL_BOSS,
     PLAYER_SHORT_ATTACK_RANGE_PX,
     PLAYER_LONG_ATTACK_RANGE_PX,
     PLAYER_BLOCK_DAMAGE_FACTOR,
@@ -58,6 +61,15 @@ _MINI_BOSS_MELEE_TYPES = frozenset({"mini_boss", "mini_boss_2", "mini_boss_3"})
 
 # Post-hit retaliation delay: shorter for boss entity classes (instance checks).
 _POST_HIT_COOLDOWN_BOSS_CLASSES = (MiniBoss, MiniBoss2, Biome3MiniBoss, FinalBoss)
+
+
+def _player_attack_enemy_type_damage_mult(enemy) -> float:
+    """Extra multiplier for player short/long damage vs boss tier (config; base damage unchanged)."""
+    if isinstance(enemy, FinalBoss):
+        return float(PLAYER_DAMAGE_MULT_FINAL_BOSS)
+    if isinstance(enemy, (MiniBoss, MiniBoss2, Biome3MiniBoss)):
+        return float(PLAYER_DAMAGE_MULT_MINIBOSS)
+    return float(PLAYER_DAMAGE_MULT_NORMAL)
 
 
 def _apply_post_hit_attack_cooldown(enemy, *, is_long_attack: bool) -> None:
@@ -279,6 +291,7 @@ def apply_player_attacks(player, enemies: list) -> List[DamageEvent]:
             if _distance_point_to_rect(px, py, hurtbox) > short_r:
                 continue
             damage = float(PLAYER_SHORT_ATTACK_DAMAGE * mult)
+            damage *= _player_attack_enemy_type_damage_mult(enemy)
             new_hp = float(getattr(enemy, "hp", 0.0)) - damage
             enemy.hp = max(0.0, new_hp)
             if enemy.hp <= 0.0 and hasattr(enemy, "_set_state"):
@@ -321,6 +334,7 @@ def apply_player_attacks(player, enemies: list) -> List[DamageEvent]:
             if _distance_point_to_rect(px, py, hurtbox) > long_r:
                 continue
             damage = float(PLAYER_LONG_ATTACK_DAMAGE * mult)
+            damage *= _player_attack_enemy_type_damage_mult(enemy)
             new_hp = float(getattr(enemy, "hp", 0.0)) - damage
             enemy.hp = max(0.0, new_hp)
             if enemy.hp <= 0.0 and hasattr(enemy, "_set_state"):

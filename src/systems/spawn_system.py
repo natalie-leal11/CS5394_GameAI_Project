@@ -67,11 +67,20 @@ class SpawnSystem:
     - Optional room_bounds (min_x, min_y, max_x, max_y) for Phase 7 room-based layout.
     """
 
-    def __init__(self, vfx: VfxManager, room_bounds: Tuple[float, float, float, float] | None = None) -> None:
+    def __init__(
+        self,
+        vfx: VfxManager,
+        room_bounds: Tuple[float, float, float, float] | None = None,
+        *,
+        elite_hp_mult: float | None = None,
+        elite_damage_mult: float | None = None,
+    ) -> None:
         self._vfx = vfx
         self._time: float = 0.0
         self._slots: List[SpawnSlot] = []
         self._room_bounds = room_bounds  # (min_x, min_y, max_x, max_y) or None = use config ENEMY_*_X/Y
+        self._elite_hp_mult = elite_hp_mult
+        self._elite_damage_mult = elite_damage_mult
 
     def add_spawn(
         self,
@@ -186,7 +195,12 @@ class SpawnSystem:
                     if slot.world_pos is not None
                     else self._tile_to_world(slot.tile_x, slot.tile_y, slot.enemy_cls, room)
                 )
-                enemy = slot.enemy_cls((world_x, world_y), elite=slot.elite)
+                elite_kw: dict = {}
+                if self._elite_hp_mult is not None:
+                    elite_kw["elite_hp_mult"] = float(self._elite_hp_mult)
+                if self._elite_damage_mult is not None:
+                    elite_kw["elite_damage_mult"] = float(self._elite_damage_mult)
+                enemy = slot.enemy_cls((world_x, world_y), elite=slot.elite, **elite_kw)
 
                 # Ensure no overlap with player; if overlapping, push enemy outward by 3 tiles.
                 overlap_nudged = False

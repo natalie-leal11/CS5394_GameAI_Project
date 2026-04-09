@@ -13,6 +13,11 @@ class DebugOverlay:
 
     def toggle(self) -> None:
         self.enabled = not self.enabled
+        # One-line console snapshot for RL human demo recording (F3); does not affect gameplay.
+        if self.enabled and getattr(self.game_scene, "_rl_controlled", False):
+            director = getattr(self.game_scene, "ai_director", None)
+            if director is not None and callable(getattr(director, "get_debug_state", None)):
+                print(f"[AI DEBUG] {director.get_debug_state()}")
 
     def draw(self, screen: pygame.Surface) -> None:
         if not self.enabled:

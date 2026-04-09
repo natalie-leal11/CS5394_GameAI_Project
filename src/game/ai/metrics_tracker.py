@@ -10,6 +10,8 @@ from typing import Any
 
 from game.config import DEBUG_ROOM_HP_METRICS_PRINT
 
+from game.ai.difficulty_params import DifficultyParams, load_difficulty_params_json
+
 
 class RoomResult(str, Enum):
     clean_clear = "clean_clear"
@@ -56,6 +58,7 @@ class RoomMetrics:
     ambush_flag: bool = False
     spawn_pattern_type: str = ""
     spawn_delay_profile: str = ""
+    reinforcement_applied: bool = False
 
     hazard_tiles_count: int = 0
     time_in_hazard_tiles: float = 0.0
@@ -111,6 +114,15 @@ class RunMetrics:
     total_rewards_collected: int = 0
     total_upgrades_selected: int = 0
 
+    # RL reward shaping only (deltas used in rl/reward.py); not mirrored to room snapshots.
+    rl_interact_success_count: int = 0
+    rl_safe_room_heal_success_count: int = 0
+    rl_safe_room_heal_failed_count: int = 0
+    rl_interact_failed_e_count: int = 0
+    # RL-only: reserve heal (H) — success paired with record_healing; failed = no heal or on cooldown.
+    rl_reserve_heal_success_count: int = 0
+    rl_reserve_heal_failed_count: int = 0
+
     hp_percent_current: float = 100.0
     hp_absolute_current: float = 0.0
     low_hp_events_count: int = 0
@@ -151,6 +163,7 @@ class RunMetrics:
     ambush_flag: bool = False
     spawn_pattern_type: str = ""
     spawn_delay_profile: str = ""
+    reinforcement_applied: bool = False
 
     hazard_tiles_count: int = 0
     time_in_hazard_tiles: float = 0.0
@@ -209,9 +222,6 @@ class RunMetrics:
     biome_history: list[dict[str, Any]] = field(default_factory=list)
 
 
-_SPIKE_DAMAGE_THRESHOLD = 30.0
-_STRUGGLE_HP_LOSS_PCT = 30.0
-_DOMINATING_HP_LOSS_PCT = 5.0
 _HEAVY_DAMAGE_HP_LOSS_PCT = 20.0
 
 
@@ -246,6 +256,7 @@ def _sync_run_from_room(rm: RunMetrics, room: RoomMetrics) -> None:
         "ambush_flag",
         "spawn_pattern_type",
         "spawn_delay_profile",
+        "reinforcement_applied",
         "hazard_tiles_count",
         "time_in_hazard_tiles",
         "damage_from_hazards",
@@ -287,7 +298,8 @@ def _sync_run_from_room(rm: RunMetrics, room: RoomMetrics) -> None:
 class MetricsTracker:
     """Accumulates run-level and per-room metrics (Metrics_Tracker.md)."""
 
-    def __init__(self) -> None:
+    def __init__(self, difficulty_params: DifficultyParams | None = None) -> None:
+        self._dp: DifficultyParams = difficulty_params or load_difficulty_params_json()
         self.run: RunMetrics = RunMetrics()
         self._room: RoomMetrics | None = None
         self._room_t0: float = 0.0
@@ -306,7 +318,9 @@ class MetricsTracker:
         self._last_biome = -1
         self._room_t0 = 0.0
 
-    def start_room(self, room_index: int, biome_index: int, hp_percent: float) -> None:
+    def start_room(
+        self, room_index: int, biome_index: int, hp_percent: float, *, room_type: str = ""
+    ) -> None:
         now = self.run.run_elapsed_time
         if self._room is not None and self._room.room_active_flag:
             self.end_room(hp_percent)
@@ -325,6 +339,7 @@ class MetricsTracker:
         r = self._room
         r.current_room_index = int(room_index)
         r.current_biome_index = int(biome_index)
+        r.room_type = str(room_type)
         r.room_start_time = now
         r.room_active_flag = True
         r.hp_percent_start_room = float(hp_percent)
@@ -342,6 +357,48 @@ class MetricsTracker:
         self.run.hp_percent_end_room = float(hp_percent)
         self.run.max_hp_during_room = float(hp_percent)
         self.run.min_hp_during_room = float(hp_percent)
+        _sync_run_from_room(self.run, r)
+
+    def set_room_spawn_metadata(
+        self,
+        *,
+        enemy_count: int,
+        composition: list[str],
+        elite_count: int,
+        reinforcement_applied: bool,
+    ) -> None:
+        """After spawn specs are finalized for the current room (no gameplay effect)."""
+        if self._room is None or not self._room.room_active_flag:
+            return
+        self._room.enemies_spawned_count = int(enemy_count)
+        self._room.elite_enemies_count = int(elite_count)
+        self._room.enemy_types_in_room = ",".join(composition)
+        self._room.enemy_composition_id = "|".join(sorted(composition))
+        self._room.reinforcement_applied = bool(reinforcement_applied)
+        _sync_run_from_room(self.run, self._room)
+
+    def append_runtime_spawn_metadata(
+        self,
+        *,
+        names: list[str],
+        elite_flags: list[bool] | None = None,
+        mark_reinforcement: bool = True,
+    ) -> None:
+        """Hostiles spawned outside initial spawn_specs (logging only; does not affect gameplay)."""
+        if self._room is None or not self._room.room_active_flag or not names:
+            return
+        flags = elite_flags if elite_flags is not None else [False] * len(names)
+        if len(flags) != len(names):
+            return
+        r = self._room
+        existing = [x for x in str(r.enemy_types_in_room).split(",") if x]
+        combined = existing + list(names)
+        r.enemies_spawned_count = int(r.enemies_spawned_count) + len(names)
+        r.elite_enemies_count = int(r.elite_enemies_count) + sum(1 for e in flags if e)
+        r.enemy_types_in_room = ",".join(combined)
+        r.enemy_composition_id = "|".join(sorted(combined))
+        if mark_reinforcement:
+            r.reinforcement_applied = True
         _sync_run_from_room(self.run, r)
 
     def record_player_hp_percent(self, hp_percent: float) -> None:
@@ -384,7 +441,7 @@ class MetricsTracker:
             room.room_result = RoomResult.death
         elif room.min_hp_during_room < 15.0:
             room.room_result = RoomResult.near_death
-        elif hp_loss_pct > _STRUGGLE_HP_LOSS_PCT:
+        elif hp_loss_pct > self._dp.metrics.struggle_hp_loss_percent_threshold:
             room.room_result = RoomResult.damaged_clear
         else:
             room.room_result = RoomResult.clean_clear
@@ -406,13 +463,17 @@ class MetricsTracker:
             RoomResult.damaged_clear.value,
             RoomResult.near_death.value,
         )
-        self.run.recent_dominating_flag = len(lst) > 0 and lst[-1] == RoomResult.clean_clear.value and hp_loss_pct < _DOMINATING_HP_LOSS_PCT
+        dom_thr = float(self._dp.metrics.dominating_hp_loss_percent_threshold)
+        self.run.recent_dominating_flag = len(lst) > 0 and lst[-1] == RoomResult.clean_clear.value and hp_loss_pct < dom_thr
 
-        if hp_loss_pct > _STRUGGLE_HP_LOSS_PCT:
+        if hp_loss_pct > self._dp.metrics.struggle_hp_loss_percent_threshold:
             self.run.struggling_rooms_count += 1
-        elif hp_loss_pct < _DOMINATING_HP_LOSS_PCT and not room.death_flag:
+        elif hp_loss_pct < dom_thr and not room.death_flag:
             self.run.dominating_rooms_count += 1
 
+        # Room is complete; must be False before archive + final sync so run.room_active_flag is not
+        # overwritten True by _sync_run_from_room (fixes duplicate room_end logs on door exit).
+        room.room_active_flag = False
         archived = copy.deepcopy(room)
         self.run.room_history.append(archived)
 
@@ -430,7 +491,6 @@ class MetricsTracker:
         self.run.room_end_time = now
         self.run.room_clear_time = dur
         self.run.hp_percent_end_room = float(hp_percent)
-        self.run.room_active_flag = False
         _sync_run_from_room(self.run, room)
         self._room = None
 
@@ -440,7 +500,7 @@ class MetricsTracker:
         et = str(enemy_type)
         self.run.total_damage_taken += amount
         self.run.biome_damage_taken += amount
-        if amount >= _SPIKE_DAMAGE_THRESHOLD:
+        if amount >= float(self._dp.metrics.spike_damage_threshold):
             self.run.spike_damage_events += 1
         self.run.damage_taken_in_room += amount
         self.run.hits_taken_count += 1
@@ -508,6 +568,30 @@ class MetricsTracker:
             self._room.upgrade_selected_type = str(type)
             self._room.upgrade_selected_id = str(id)
             _sync_run_from_room(self.run, self._room)
+
+    def record_rl_interact_success(self) -> None:
+        """Room 0 altar open or story close via E (gameplay event; used by RL reward only)."""
+        self.run.rl_interact_success_count += 1
+
+    def record_rl_safe_room_heal_success(self) -> None:
+        """Safe-room F heal applied with HP gain (paired with record_healing)."""
+        self.run.rl_safe_room_heal_success_count += 1
+
+    def record_rl_safe_room_heal_failed(self) -> None:
+        """Safe-room F pressed in valid context but no HP applied (e.g. already full)."""
+        self.run.rl_safe_room_heal_failed_count += 1
+
+    def record_rl_interact_failed_e(self) -> None:
+        """RL dispatched E but no interact success this frame (anti-spam; RL path only)."""
+        self.run.rl_interact_failed_e_count += 1
+
+    def record_rl_reserve_heal_success(self) -> None:
+        """RL path: reserve H consumed with HP gain (paired with record_healing)."""
+        self.run.rl_reserve_heal_success_count += 1
+
+    def record_rl_reserve_heal_failed(self) -> None:
+        """RL path: H pressed but no heal (empty pool, full HP, or on cooldown)."""
+        self.run.rl_reserve_heal_failed_count += 1
 
     def record_death(self) -> None:
         self.run.total_deaths += 1

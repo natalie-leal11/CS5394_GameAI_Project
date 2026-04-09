@@ -207,15 +207,21 @@ PLAYER_BLOCK_DAMAGE_FACTOR = 0.4
 # Player base attack damages (Biome 1 defaults).
 PLAYER_SHORT_ATTACK_DAMAGE = 8
 PLAYER_LONG_ATTACK_DAMAGE = 14
+# Player melee vs enemy category (applied after base × attack_multiplier in combat.apply_player_attacks).
+PLAYER_DAMAGE_MULT_NORMAL = 1.0
+PLAYER_DAMAGE_MULT_MINIBOSS = 0.85
+PLAYER_DAMAGE_MULT_FINAL_BOSS = 0.65
 
 # Attack timings (sec) for Biome 1.
 PLAYER_SHORT_ATTACK_WINDUP_SEC = 0.12
 PLAYER_SHORT_ATTACK_ACTIVE_SEC = 0.10
 PLAYER_SHORT_ATTACK_RECOVERY_SEC = 0.18
+# Enforced by Player.short_attack_cooldown_timer (min time between short-attack starts; independent of anim length).
+PLAYER_SHORT_ATTACK_COOLDOWN_SEC = 0.5
 
 PLAYER_LONG_ATTACK_WINDUP_SEC = 0.20
 # Enforced by Player.long_attack_cooldown_timer (independent of attack_long animation length / FPS).
-PLAYER_LONG_ATTACK_COOLDOWN_SEC = 0.1
+PLAYER_LONG_ATTACK_COOLDOWN_SEC = 1.2
 
 # Player melee: proximity radii from player center (px). Facing does not affect hits.
 PLAYER_SHORT_ATTACK_RANGE_PX = 48  # 1.5 tiles — smaller radius
@@ -297,6 +303,10 @@ SPAWN_NEARBY_TILES_RADIUS = 3
 HEAVY_UNSTUCK_RETREAT_DURATION_SEC = 0.3
 # Heavy: time trying to move with near-zero displacement before marking stuck (triggers retreat / anti-stuck)
 HEAVY_STUCK_TIME_SEC = 0.32
+# Heavy Brute-style only: near-zero displacement while chasing → accumulate; then one deterministic perpendicular sidestep
+HEAVY_BRUTE_STUCK_DIST_PX = 1.5
+HEAVY_BRUTE_STUCK_TIME_SEC = 0.3
+HEAVY_BRUTE_UNSTUCK_SPEED_MULT = 0.42
 # Heavy clearance: inflate hitbox by this many px when testing spawn validity (match GameScene probe)
 HEAVY_CLEARANCE_PADDING_PX = 12
 # Live chase only: tighter inflation than spawn so Heavy commits through gaps instead of zeroing velocity
@@ -315,7 +325,7 @@ AMBUSH_SPAWN_RADIUS_PX = 200
 TRIANGLE_OFFSET_PX = 80
 
 # --- Phase 6: Mini Boss ---
-MINI_BOSS_BASE_HP = 200
+MINI_BOSS_BASE_HP = 100
 MINI_BOSS_BASE_DAMAGE = 18
 MINI_BOSS_MOVE_SPEED = 100
 MINI_BOSS_DASH_SPEED = 180
@@ -406,7 +416,7 @@ BIOME4_BOSS_UI_ANCHOR_W = BOSS_HUD_BAR_WIDTH
 BIOME4_BOSS_UI_ANCHOR_H = 60
 
 # --- Biome 4 Phase 3: Final Boss (Room 29) — relentless, hardest encounter ---
-FINAL_BOSS_HP = 480
+FINAL_BOSS_HP = 200
 FINAL_BOSS_CONTACT_DAMAGE = 18
 FINAL_BOSS_FIREBALL_DAMAGE = 20
 FINAL_BOSS_LAVA_WAVE_DAMAGE = 22
@@ -448,7 +458,7 @@ FINAL_BOSS_ATTACK_RADIUS = 40.0
 FINAL_BOSS_ATTACK_OFFSET = 50.0
 
 # --- Final Boss Revive Phase (one last stand at 0 HP) ---
-FINAL_BOSS_REVIVE_HP = 50
+FINAL_BOSS_REVIVE_HP = 100
 FINAL_BOSS_REVIVE_DELAY_SEC = 2.0
 FINAL_BOSS_REVIVE_INVULN_SEC = 1.5
 # Center-screen revive message duration (1.2–1.8 s); show before boss reappears.
