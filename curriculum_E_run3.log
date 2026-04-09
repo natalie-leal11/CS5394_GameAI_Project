@@ -1,0 +1,81 @@
+﻿python : C:\Users\maham\AppData\Local\Programs\Python\Python313\Lib\site-packages\pygame\pkgdata.py:25: UserWarning: 
+pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources 
+package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+At C:\Users\maham\AppData\Local\Temp\ps-script-42aa70d6-8e5d-4d7f-a634-f8c10b4f9b60.ps1:77 char:239
++ ... roject\src; python -u -m rl.train_curriculum_ppo --scenario interact  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\maham\... Setuptools<81.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  from pkg_resources import resource_stream, resource_exists
+[train_curriculum_ppo] repo root: C:\Users\maham\Downloads\CS5394_GameAI_Project
+[train_curriculum_ppo] scenario: interact
+[train_curriculum_ppo] models dir: C:\Users\maham\Downloads\CS5394_GameAI_Project\models\ppo\iter2_cooldown_0p5_1p2_curriculum\stage_ef_E_only
+[train_curriculum_ppo] logs dir: C:\Users\maham\Downloads\CS5394_GameAI_Project\logs\ppo\iter2_cooldown_0p5_1p2_curriculum\stage_ef_E_only
+[train_curriculum_ppo] timesteps: 100000
+[train_curriculum_ppo] TimeLimit: True max_episode_steps=800
+Using cpu device
+Logging to C:\Users\maham\Downloads\CS5394_GameAI_Project\logs\ppo\iter2_cooldown_0p5_1p2_curriculum\stage_ef_E_only\tensorboard\PPO_3
+[PLAYER] Directional short attack: directional/attack_up|attack_down|attack_left|attack_right/
+[PLAYER] Directional long attack: directional/attack_long_up|attack_long_down|attack_long_left|attack_long_right/
+[PLAYER] Attack animation FPS: attack_short=10, attack_long=7
+[PLAYER] Short attack cooldown enforced at 0.5s (real timer; independent of animation lock).
+[PLAYER] Long attack cooldown enforced at 1.2s (real timer; independent of animation lock).
+[PLAYER] Long attack blocked by cooldown (0.13s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.50s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.37s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.17s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.13s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.42s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.38s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.35s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.17s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.23s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.45s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.35s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.32s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.08s remaining / 1.2s configured)
+---------------------------------
+| rollout/           |          |
+|    ep_len_mean     | 65.7     |
+|    ep_rew_mean     | 2.81     |
+| time/              |          |
+|    fps             | 27       |
+|    iterations      | 1        |
+|    time_elapsed    | 73       |
+|    total_timesteps | 2048     |
+---------------------------------
+[PLAYER] Long attack blocked by cooldown (0.45s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.13s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.30s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.22s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.48s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.12s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.25s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.37s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.08s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.22s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.48s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.35s remaining / 1.2s configured)
+[PLAYER] Long attack blocked by cooldown (0.47s remaining / 1.2s configured)
+-----------------------------------------
+| rollout/                |             |
+|    ep_len_mean          | 73          |
+|    ep_rew_mean          | 2.77        |
+| time/                   |             |
+|    fps                  | 31          |
+|    iterations           | 2           |
+|    time_elapsed         | 131         |
+|    total_timesteps      | 4096        |
+| train/                  |             |
+|    approx_kl            | 0.008082193 |
+|    clip_fraction        | 0.0723      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -2.83       |
+|    explained_variance   | 0.0998      |
+|    learning_rate        | 0.0003      |
+|    loss                 | 0.116       |
+|    n_updates            | 10          |
+|    policy_gradient_loss | -0.0131     |
+|    value_loss           | 0.48        |
+-----------------------------------------
