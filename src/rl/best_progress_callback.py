@@ -31,7 +31,6 @@ class BestProgressionEvalCallback(BaseCallback):
         *,
         deterministic: bool = True,
         verbose: int = 0,
-        early_stop_patience: int = 0,
     ) -> None:
         super().__init__(verbose)
         self.eval_env_fn = eval_env_fn
@@ -39,9 +38,7 @@ class BestProgressionEvalCallback(BaseCallback):
         self.n_eval_episodes = int(n_eval_episodes)
         self.best_path = Path(best_model_path)
         self.deterministic = deterministic
-        self.early_stop_patience = max(0, int(early_stop_patience))
         self.best_mean_final_room = float("-inf")
-        self._no_improve_evals = 0
         self._eval_env: Any = None
         self._next_eval_at = 0
 
@@ -61,7 +58,6 @@ class BestProgressionEvalCallback(BaseCallback):
         mfr = metrics["mean_final_room"]
         if mfr > self.best_mean_final_room:
             self.best_mean_final_room = mfr
-            self._no_improve_evals = 0
             self.best_path.parent.mkdir(parents=True, exist_ok=True)
             self.model.save(str(self.best_path))
             print(
@@ -70,23 +66,12 @@ class BestProgressionEvalCallback(BaseCallback):
                 f"mean_reward={metrics['mean_reward']:.4f}) -> saved {self.best_path.resolve()}"
             )
         else:
-            self._no_improve_evals += 1
-            _streak_hint = (
-                f" (no_improve_streak={self._no_improve_evals})" if self.early_stop_patience > 0 else ""
-            )
             print(
                 f"[best_progress] eval mean_final_room_index={mfr:.4f} "
                 f"(best so far={self.best_mean_final_room:.4f}) "
                 f"mean_max_room={metrics['mean_max_room']:.4f} "
                 f"timeouts={metrics['timeouts']}/{self.n_eval_episodes}"
-                f"{_streak_hint}"
             )
-            if self.early_stop_patience > 0 and self._no_improve_evals >= self.early_stop_patience:
-                print(
-                    f"[best_progress] early stopping: mean_final_room_index did not improve for "
-                    f"{self.early_stop_patience} consecutive eval(s) (best={self.best_mean_final_room:.4f})"
-                )
-                return False
         return True
 
     def _run_eval(self) -> dict[str, float]:

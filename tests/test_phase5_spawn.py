@@ -82,7 +82,7 @@ def test_spawn_system_tile_to_world_clamped():
     vfx = VfxManager()
     system = SpawnSystem(vfx)
     system.add_spawn(0, 0, Swarm, False, start_time_sec=10.0)  # never start in test
-    x, y = system._tile_to_world(0, 0, Swarm, None)
+    x, y = system._tile_to_world(0, 0)
     assert ENEMY_MIN_X <= x <= ENEMY_MAX_X
     assert ENEMY_MIN_Y <= y <= ENEMY_MAX_Y
     # Center of tile (0,0) in world
@@ -154,6 +154,6 @@ def test_spawn_system_room_bounds_clamps_position():
     room_bounds = (0.0, 0.0, 64.0, 64.0)
     system = SpawnSystem(vfx, room_bounds=room_bounds)
     # Tile (5, 5) would be (5.5*32, 5.5*32) = (176, 176) unclamped
-    x, y = system._tile_to_world(5, 5, Swarm, None)
+    x, y = system._tile_to_world(5, 5)
     assert 0 <= x <= 64
     assert 0 <= y <= 64

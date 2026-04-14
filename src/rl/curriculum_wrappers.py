@@ -31,8 +31,6 @@ class CurriculumSuccessWrapper(gym.Wrapper):
         self.scenario: str | None = None
         self._prev_interact_ok: int = 0
         self._prev_heal_ok: int = 0
-        self._episode_steps: int = 0
-        self._pending_curriculum_success: bool = False
 
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
         options = dict(options or {})
@@ -43,8 +41,6 @@ class CurriculumSuccessWrapper(gym.Wrapper):
         options["curriculum_scenario"] = self.scenario
         obs, info = self.env.reset(seed=seed, options=options)
         self._sync_prev_from_metrics()
-        self._episode_steps = 0
-        self._pending_curriculum_success = False
         info["curriculum_scenario"] = self.scenario
         return obs, info
 
@@ -63,7 +59,6 @@ class CurriculumSuccessWrapper(gym.Wrapper):
 
     def step(self, action: Any) -> tuple[Any, float, bool, bool, dict[str, Any]]:
         obs, reward, terminated, truncated, info = self.env.step(action)
-        self._episode_steps += 1
         gs = self._game_scene()
         run = None
         if gs is not None:
@@ -71,20 +66,17 @@ class CurriculumSuccessWrapper(gym.Wrapper):
             run = getattr(mt, "run", None) if mt is not None else None
         ri = int(getattr(run, "rl_interact_success_count", 0)) if run is not None else 0
         sh = int(getattr(run, "rl_safe_room_heal_success_count", 0)) if run is not None else 0
+        success = False
         scen = self.scenario or ""
-        min_steps = 3
         if scen == "interact" and ri > self._prev_interact_ok:
-            self._pending_curriculum_success = True
+            success = True
         if scen == "safe_heal" and sh > self._prev_heal_ok:
-            self._pending_curriculum_success = True
+            success = True
         self._prev_interact_ok = ri
         self._prev_heal_ok = sh
-        success = self._pending_curriculum_success and self._episode_steps >= min_steps
         if success:
-            print(f"CURRICULUM SUCCESS: {self.scenario} step_count={self._episode_steps}")
             reward = float(reward) + self._success_bonus
             terminated = True
-            self._pending_curriculum_success = False
         info["curriculum_success"] = success
         if self.scenario is not None:
             info["curriculum_scenario"] = self.scenario
