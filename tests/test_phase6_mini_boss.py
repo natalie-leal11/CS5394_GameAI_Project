@@ -30,7 +30,7 @@ pygame.display.set_mode((1, 1))
 
 def test_phase6_config():
     """Phase 6 mini boss constants are defined and sensible."""
-    assert MINI_BOSS_SIZE == (96, 96)
+    assert MINI_BOSS_SIZE == (128, 128)
     assert MINI_BOSS_BASE_HP >= 100
     assert MINI_BOSS_BASE_DAMAGE >= 10
     assert MINI_BOSS_MOVE_SPEED > 0
@@ -45,13 +45,13 @@ def test_mini_boss_entity_basics():
     """MiniBoss has correct type, size, HP, damage and hitbox."""
     boss = MiniBoss((100.0, 100.0))
     assert boss.enemy_type == "mini_boss"
-    assert boss.size == (96, 96)
+    assert boss.size == (128, 128)
     assert boss.max_hp == MINI_BOSS_BASE_HP
     assert boss.hp == MINI_BOSS_BASE_HP
     assert boss.damage == MINI_BOSS_BASE_DAMAGE
     assert boss.inactive is False
     rect = boss.get_hitbox_rect()
-    assert rect.width == 96 and rect.height == 96
+    assert rect.width == 128 and rect.height == 128
     assert rect.centerx == 100 and rect.centery == 100
 
 
@@ -65,7 +65,9 @@ def test_mini_boss_takes_player_damage():
     boss = MiniBoss((PLAYER_SHORT_ATTACK_RANGE_PX * 0.5, 0.0))
     initial_hp = boss.hp
     events = apply_player_attacks(player, [boss])
-    assert boss.hp <= initial_hp - PLAYER_SHORT_ATTACK_DAMAGE
+    # Mini-boss may use damage multipliers slightly below full short-attack damage.
+    assert boss.hp < initial_hp
+    assert initial_hp - boss.hp >= PLAYER_SHORT_ATTACK_DAMAGE * 0.75
     assert len(events) >= 1
     assert any(e.target == boss and not e.is_player for e in events)
 

@@ -1,0 +1,21 @@
+[
+  {
+    "event": "run_header",
+    "run_id": "74230463-163a-4c0a-a42d-f5e5777aa99e",
+    "seed": 1776109680971
+  },
+  {
+    "run_id": "74230463-163a-4c0a-a42d-f5e5777aa99e",
+    "run_seed": 1776109680971,
+    "room_index": 4,
+    "biome_index": 1,
+    "room_type": "SAFE",
+    "player_state": "STRUGGLING",
+    "heal_source": "safe_room",
+    "hp_percent_before": 32.0,
+    "hp_percent_after": 62.0,
+    "heal_amount_applied": 60.0,
+    "consumed": true,
+    "event": "heal_applied"
+  }
+]

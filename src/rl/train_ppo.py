@@ -109,6 +109,12 @@ def parse_args() -> argparse.Namespace:
         help="Episodes per eval when --eval-freq > 0 (default from PPOConfig).",
     )
     p.add_argument(
+        "--early-stop-patience",
+        type=int,
+        default=None,
+        help="Stop after N consecutive evals with no mean_final_room_index improvement (0 = off; requires --eval-freq > 0).",
+    )
+    p.add_argument(
         "--best-model",
         type=Path,
         default=None,
@@ -163,6 +169,12 @@ def main() -> None:
             raise SystemExit("--eval-episodes must be >= 1")
         cfg.eval_episodes = args.eval_episodes
 
+    early_stop_patience = 0
+    if args.early_stop_patience is not None:
+        early_stop_patience = max(0, int(args.early_stop_patience))
+        if early_stop_patience > 0 and (cfg.eval_freq is None or cfg.eval_freq <= 0):
+            raise SystemExit("--early-stop-patience requires --eval-freq > 0")
+
     if args.experiment is not None and args.stage is None:
         raise SystemExit("--experiment requires --stage (e.g. --stage 300k)")
     if args.experiment is not None:
@@ -194,6 +206,11 @@ def main() -> None:
             f"[train_ppo] best-progress eval: every {cfg.eval_freq} steps, "
             f"{cfg.eval_episodes} episodes -> {best_path.resolve()} (only when mean final room_index improves)"
         )
+        if early_stop_patience > 0:
+            print(
+                f"[train_ppo] early stopping: stop after {early_stop_patience} consecutive eval(s) "
+                "without mean_final_room_index improvement"
+            )
     else:
         print("[train_ppo] best-progress eval: off (use --eval-freq N to enable)")
 
@@ -259,6 +276,7 @@ def main() -> None:
                 best_model_path=best_path,
                 deterministic=True,
                 verbose=0,
+                early_stop_patience=early_stop_patience,
             )
         )
 

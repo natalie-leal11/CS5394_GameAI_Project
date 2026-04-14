@@ -116,7 +116,21 @@ R_ATTACK_SPAM_STEP_CAP = 0.014
 # Final safety clamp for non-terminal steps (terminal may use full R_VICTORY / R_DEFEAT).
 R_STEP_CLIP = 3.5
 
+# Curriculum E (interact) / F (safe_heal) — replaces generic benefit_interact / benefit_safe_heal for those runs.
+CURRICULUM_E_APPROACH_REWARD = 0.02
+CURRICULUM_E_INTERACT_BONUS = 1.0
+CURRICULUM_E_IDLE_PENALTY = -0.01
+CURRICULUM_E_APPROACH_MIN_DELTA_PX = 0.05
+
+CURRICULUM_F_LOW_HP_RATIO = 0.5
+CURRICULUM_F_HIGH_HP_RATIO = 0.7
+CURRICULUM_F_CORRECT_HEAL = 1.0
+CURRICULUM_F_WRONG_HEAL = -0.2
+CURRICULUM_F_MISSED_HEAL_PER_STEP = -0.02
+
 _BOSS_CLASS_NAMES = frozenset({"MiniBoss", "MiniBoss2", "Biome3MiniBoss", "FinalBoss"})
+# Curriculum interact: movement (1–4), combat, dash, block/parry, interact, heals (1–12).
+_CURRICULUM_MEANINGFUL_ACTIONS = frozenset(range(1, 13))
 
 
 @dataclass(frozen=True)
@@ -148,6 +162,9 @@ class RewardSnapshot:
     rl_safe_room_heal_failed_count: int
     rl_interact_failed_e_count: int
     rl_reserve_heal_failed_count: int
+    # Curriculum micro-scenarios: goal distance (altar / heal tile) and active scenario label.
+    curriculum_scenario: str | None
+    curriculum_goal_dist: float
 
 
 def merge_timeout_penalty_into_breakdown(breakdown: dict[str, float]) -> dict[str, float]:
@@ -294,6 +311,24 @@ def build_reward_snapshot(game_scene: Any) -> RewardSnapshot:
             rife = int(getattr(run, "rl_interact_failed_e_count", 0))
             rrh_fail = int(getattr(run, "rl_reserve_heal_failed_count", 0))
 
+    c_scen = getattr(gs, "_rl_curriculum_scenario", None)
+    c_scen = str(c_scen) if c_scen is not None else None
+    cgd = float("inf")
+    if c_scen == "interact":
+        ap = getattr(gs, "_room0_altar_pos", None)
+        if ap is not None and p is not None:
+            try:
+                cgd = math.hypot(px - float(ap[0]), py - float(ap[1]))
+            except (TypeError, ValueError):
+                cgd = float("inf")
+    elif c_scen == "safe_heal":
+        heal_pos = getattr(gs, "_safe_room_heal_pos", None)
+        if heal_pos is not None and p is not None:
+            try:
+                cgd = math.hypot(px - float(heal_pos[0]), py - float(heal_pos[1]))
+            except (TypeError, ValueError):
+                cgd = float("inf")
+
     return RewardSnapshot(
         hp=hp,
         max_hp=max(max_hp, 1e-6),
@@ -320,6 +355,8 @@ def build_reward_snapshot(game_scene: Any) -> RewardSnapshot:
         rl_safe_room_heal_failed_count=rs_fail,
         rl_interact_failed_e_count=rife,
         rl_reserve_heal_failed_count=rrh_fail,
+        curriculum_scenario=c_scen,
+        curriculum_goal_dist=float(cgd),
     )
 
 
@@ -389,8 +426,14 @@ def compute_step_reward(
         "stationary_combat": 0.0,
         "combat_movement": 0.0,
         "attack_spam": 0.0,
+        "curriculum_e_approach": 0.0,
+        "curriculum_e_interact": 0.0,
+        "curriculum_e_idle": 0.0,
+        "curriculum_f_heal": 0.0,
+        "curriculum_f_missed": 0.0,
     }
 
+    scen = prev.curriculum_scenario
     same_room = prev.room_index == curr.room_index and prev.room_index >= 0
     moved = (
         math.hypot(curr.player_x - prev.player_x, curr.player_y - prev.player_y)
@@ -457,12 +500,12 @@ def compute_step_reward(
 
     # --- E / F success + failed E/F ---
     d_ri = max(0, curr.rl_interact_success_count - prev.rl_interact_success_count)
-    if d_ri > 0:
+    if d_ri > 0 and scen != "interact":
         b["benefit_interact"] = float(
             min(R_BENEFIT_INTERACT * float(d_ri), R_BENEFIT_INTERACT_STEP_CAP)
         )
     d_ssh = max(0, curr.rl_safe_room_heal_success_count - prev.rl_safe_room_heal_success_count)
-    if d_ssh > 0:
+    if d_ssh > 0 and scen != "safe_heal":
         b["benefit_safe_heal"] = float(
             min(R_BENEFIT_SAFE_ROOM_HEAL_EXTRA * float(d_ssh), R_BENEFIT_SAFE_HEAL_STEP_CAP)
         )
@@ -611,6 +654,32 @@ def compute_step_reward(
 
     else:
         state.micro_idle_steps = 0
+
+    # --- Curriculum E/F shaping (replaces generic benefit_interact / benefit_safe_heal for those runs) ---
+    if scen == "interact":
+        if math.isfinite(prev.curriculum_goal_dist) and math.isfinite(curr.curriculum_goal_dist):
+            closer = float(prev.curriculum_goal_dist) - float(curr.curriculum_goal_dist)
+            if closer > CURRICULUM_E_APPROACH_MIN_DELTA_PX:
+                b["curriculum_e_approach"] = CURRICULUM_E_APPROACH_REWARD
+        if d_ri > 0:
+            b["curriculum_e_interact"] = CURRICULUM_E_INTERACT_BONUS * float(d_ri)
+        if not terminated:
+            meaningful = moved >= MICRO_IDLE_MOVE_THRESHOLD_PX or (
+                action is not None and int(action) in _CURRICULUM_MEANINGFUL_ACTIONS
+            )
+            if not meaningful:
+                b["curriculum_e_idle"] = CURRICULUM_E_IDLE_PENALTY
+    elif scen == "safe_heal":
+        if d_ssh > 0:
+            hp_ratio = float(prev.hp) / float(max(prev.max_hp, 1e-6))
+            if hp_ratio < CURRICULUM_F_LOW_HP_RATIO:
+                b["curriculum_f_heal"] = CURRICULUM_F_CORRECT_HEAL
+            elif hp_ratio > CURRICULUM_F_HIGH_HP_RATIO:
+                b["curriculum_f_heal"] = CURRICULUM_F_WRONG_HEAL
+        elif not terminated:
+            hp_ratio = float(prev.hp) / float(max(prev.max_hp, 1e-6))
+            if hp_ratio < CURRICULUM_F_LOW_HP_RATIO:
+                b["curriculum_f_missed"] = CURRICULUM_F_MISSED_HEAL_PER_STEP
 
     total = float(sum(b.values()))
     terminal_big = b["victory"] != 0.0 or b["defeat"] != 0.0

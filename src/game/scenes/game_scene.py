@@ -113,6 +113,8 @@ SAFE_ROOM_UPGRADE_HEALTH_MULT = 1.20   # +20% max HP
 SAFE_ROOM_UPGRADE_SPEED_MULT = 1.10   # +10% movement speed
 SAFE_ROOM_UPGRADE_ATTACK_MULT = 1.12  # +12% attack damage
 SAFE_ROOM_UPGRADE_DEFENCE_MULT = 0.88  # -12% incoming damage
+# RL-only Biome 3/4 safe-room auto-pick: UI order is 1=health, 2=speed, 3=attack, 4=defence (Biome 4).
+_RL_SAFE_ROOM_UPGRADE_PRIORITY: tuple[int, ...] = (1, 3, 4, 2)  # health → damage → defence → speed
 # Short attack (LMB): time window for merging poll + event input (walk/state timing).
 SHORT_ATTACK_INPUT_BUFFER_SEC = 0.12
 from entities.player import Player
@@ -704,7 +706,8 @@ class GameScene(BaseScene):
             self._setup_room0_props_and_dummy()
             if self._room0_altar_pos:
                 ax, ay = self._room0_altar_pos
-                self._player.world_pos = (ax - 32.0, ay)
+                # Curriculum E: spawn closer to altar than full-game default, still outside instant-E range edge cases.
+                self._player.world_pos = (ax - 18.0, ay)
             self._room0_story_panel_open = False
             self._rl_curriculum_applied = True
             return
@@ -723,13 +726,15 @@ class GameScene(BaseScene):
                 ty = b + 2
                 wx, wy = room.world_pos_for_tile(tx, ty)
                 self._safe_room_heal_pos = (wx, wy)
-                self._player.world_pos = (wx + 10.0, wy + 10.0)
+                # Curriculum F: closer to heal pickup; heal not done so F is available immediately.
+                self._player.world_pos = (wx + 4.0, wy + 4.0)
                 self._near_safe_room_heal = True
             else:
                 self._safe_room_heal_pos = None
                 self._near_safe_room_heal = False
             mx = float(self._player.max_hp)
-            self._player.hp = max(1.0, mx * 0.42)
+            # Clearly low HP so safe-room heal is the right action (still not trivial auto-success).
+            self._player.hp = max(1.0, mx * 0.32)
             self._safe_room_heal_done = False
             self._metrics_pending_room_start = True
             self._rl_curriculum_applied = True
@@ -933,6 +938,158 @@ class GameScene(BaseScene):
         if idx >= BIOME4_START_INDEX:
             return 2
         return 0
+
+    def _rl_ensure_safe_room_upgrade_state_exposed(self) -> None:
+        """
+        RL-only: once SAFE heal is done and this room still has upgrade pick(s) left, force the same
+        \"upgrade choice open\" flag manual play gets after F heal, so draw + KEYDOWN 1–4 stay aligned.
+        Does not apply heals, does not choose upgrades, does not run for manual input.
+        """
+        if not getattr(self, "_rl_controlled", False):
+            return
+        if self._paused or self._death_phase is not None or self._victory_phase:
+            return
+        if self._room_controller is None or self._player is None:
+            return
+        room = self._room_controller.current_room
+        if room is None or room.room_type != RoomType.SAFE:
+            return
+        if not self._safe_room_heal_done:
+            return
+        pc = self._safe_room_upgrade_pick_count_for_current_room()
+        if pc <= 0:
+            return
+        if self._safe_room_upgrade_chosen_this_room:
+            return
+        if self._safe_room_upgrade_picks_remaining <= 0:
+            return
+        if not self._safe_room_upgrade_pending:
+            self._safe_room_upgrade_pending = True
+
+    def _try_apply_safe_room_f_heal(self) -> bool:
+        """Apply safe-room F heal (+30% etc.) if preconditions match. Returns True if heal was applied."""
+        if self._player is None:
+            return False
+        if (
+            self._room_controller is None
+            or self._room_controller.current_room is None
+            or self._room_controller.current_room.room_type != RoomType.SAFE
+            or self._safe_room_heal_done
+            or not self._near_safe_room_heal
+            or self._safe_room_heal_pos is None
+        ):
+            return False
+        base_max_hp = getattr(self._player, "base_max_hp", 100.0)
+        _cr = self._room_controller.current_room
+        _psnh = self.player_state.name if self.player_state is not None else None
+        _bidx_safe = int(getattr(_cr, "biome_index", 1)) if _cr is not None else 1
+        if _bidx_safe == 2:
+            _srm = biome2_safe_room_heal_multiplier(_psnh)
+        elif _bidx_safe == 3:
+            _srm = biome3_safe_room_heal_multiplier(_psnh)
+        elif _bidx_safe == 4:
+            _srm = biome4_safe_room_heal_multiplier(_psnh)
+        else:
+            _srm = 1.0
+        heal_amount = float(base_max_hp) * self._difficulty_params.rewards.safe_room_heal_percent * _srm
+        _hp_before_safe = self._player_hp_percent()
+        applied = self._player.apply_incoming_heal(heal_amount)
+        if applied > 0.0:
+            self._metrics.record_healing(applied)
+            self._metrics.record_rl_safe_room_heal_success()
+        else:
+            self._metrics.record_rl_safe_room_heal_failed()
+        self._rl_log_heal_applied(
+            heal_source="safe_room",
+            hp_before=_hp_before_safe,
+            hp_after=self._player_hp_percent(),
+            heal_amount_applied=float(applied),
+        )
+        self._safe_room_heal_done = True
+        self._safe_room_upgrade_pending = True
+        pc_up = self._safe_room_upgrade_pick_count_for_current_room()
+        self._safe_room_upgrade_picks_remaining = pc_up if pc_up > 0 else 0
+        if pc_up == 2:
+            self._safe_room_biome4_chosen = set()
+        self._vfx.spawn_floating_text(self._safe_room_heal_pos, "+30% Health", (80, 255, 120))
+        self._heal_flash_timer = 0.35
+        return True
+
+    def _rl_try_auto_safe_room_heal(self) -> None:
+        """RL-only: same effect as KEYDOWN F for safe-room heal without requiring a key."""
+        if not getattr(self, "_rl_controlled", False):
+            return
+        self._try_apply_safe_room_f_heal()
+
+    def _apply_biome3_safe_room_upgrade_choice(self, choice: int) -> None:
+        """Biome 3 SAFE: one of 1=health, 2=speed, 3=attack."""
+        p = self._player
+        if p is None:
+            return
+        if choice == 1:
+            p.apply_safe_room_health_upgrade(SAFE_ROOM_UPGRADE_HEALTH_MULT)
+        elif choice == 2:
+            p.move_speed_mult = SAFE_ROOM_UPGRADE_SPEED_MULT
+        elif choice == 3:
+            p.attack_damage_mult = SAFE_ROOM_UPGRADE_ATTACK_MULT
+        self._metrics.record_upgrade("safe_room", f"b3_{choice}")
+        self._safe_room_upgrade_chosen_this_room = True
+        self._safe_room_upgrade_picks_remaining = 0
+        self._safe_room_upgrade_pending = False
+
+    def _apply_biome4_safe_room_upgrade_choice(self, choice: int) -> bool:
+        """Biome 4 SAFE: one of four options; returns False if duplicate choice."""
+        if choice in self._safe_room_biome4_chosen:
+            return False
+        p = self._player
+        if p is None:
+            return False
+        if choice == 1:
+            p.apply_safe_room_health_upgrade(SAFE_ROOM_UPGRADE_HEALTH_MULT)
+        elif choice == 2:
+            p.move_speed_mult = SAFE_ROOM_UPGRADE_SPEED_MULT
+        elif choice == 3:
+            p.attack_damage_mult = SAFE_ROOM_UPGRADE_ATTACK_MULT
+        elif choice == 4:
+            p.damage_taken_mult = SAFE_ROOM_UPGRADE_DEFENCE_MULT
+        else:
+            return False
+        self._metrics.record_upgrade("safe_room", f"b4_{choice}")
+        self._safe_room_biome4_chosen.add(choice)
+        self._safe_room_upgrade_picks_remaining = max(0, self._safe_room_upgrade_picks_remaining - 1)
+        if len(self._safe_room_biome4_chosen) >= 2:
+            self._safe_room_upgrade_chosen_this_room = True
+            self._safe_room_upgrade_picks_remaining = 0
+            self._safe_room_upgrade_pending = False
+        return True
+
+    def _rl_auto_resolve_safe_room_upgrades(self) -> None:
+        """RL-only: auto-pick safe-room upgrades using fixed priority (no KEYDOWN 1–4)."""
+        if not getattr(self, "_rl_controlled", False):
+            return
+        if self._paused or self._death_phase is not None or self._victory_phase:
+            return
+        if not self._safe_room_heal_done:
+            return
+        if self._safe_room_upgrade_chosen_this_room:
+            return
+        if self._room_controller is None or self._player is None:
+            return
+        room = self._room_controller.current_room
+        if room is None or room.room_type != RoomType.SAFE:
+            return
+        pc = self._safe_room_upgrade_pick_count_for_current_room()
+        if pc == 1 and self._safe_room_upgrade_picks_remaining > 0:
+            # Priority: health (1) first — only one pick in Biome 3.
+            self._apply_biome3_safe_room_upgrade_choice(1)
+            return
+        if pc == 2 and self._safe_room_upgrade_picks_remaining > 0:
+            for choice in _RL_SAFE_ROOM_UPGRADE_PRIORITY:
+                if self._safe_room_upgrade_picks_remaining <= 0:
+                    break
+                if choice in self._safe_room_biome4_chosen:
+                    continue
+                self._apply_biome4_safe_room_upgrade_choice(choice)
 
     def _classify_player_model_from_current_run(self) -> None:
         """Build summary from metrics + player life_index / recent life loss; update player_state and AI Director."""
@@ -2667,11 +2824,18 @@ class GameScene(BaseScene):
                 px, py = self._player.world_pos
                 hx, hy = self._safe_room_heal_pos
                 self._near_safe_room_heal = math.hypot(px - hx, py - hy) <= 70.0
+                # RL: treat heal pickup as available anywhere in SAFE (no walk to corner for F).
+                if getattr(self, "_rl_controlled", False) and not self._safe_room_heal_done:
+                    self._near_safe_room_heal = True
             else:
                 self._near_safe_room_heal = False
         else:
             self._safe_room_heal_pos = None
             self._near_safe_room_heal = False
+
+        # RL-only: auto-apply safe-room heal (same as F) without KEYDOWN
+        if getattr(self, "_rl_controlled", False):
+            self._rl_try_auto_safe_room_heal()
 
         # Heal flash countdown (visual feedback after collecting heal)
         if self._heal_flash_timer > 0:
@@ -2812,13 +2976,17 @@ class GameScene(BaseScene):
         if self._player is not None:
             player_rect = self._player.get_hitbox_rect()
             reward_radius = 24.0
+            _rl_auto_reward = bool(getattr(self, "_rl_controlled", False))
             for r in self._rewards:
                 if r["collected"]:
                     continue
                 rx, ry = r["pos"]
                 dx = (player_rect.centerx - rx)
                 dy = (player_rect.centery - ry)
-                if math.hypot(dx, dy) <= reward_radius + max(player_rect.w, player_rect.h) / 2:
+                _within = math.hypot(dx, dy) <= reward_radius + max(player_rect.w, player_rect.h) / 2
+                if _rl_auto_reward:
+                    _within = True
+                if _within:
                     r["collected"] = True
                     hp_before = self._player_hp_percent()
                     base_max_hp = getattr(self._player, "base_max_hp", 100.0)
@@ -2852,6 +3020,9 @@ class GameScene(BaseScene):
 
         self._enforce_enemy_separation()
         self._enforce_player_enemy_separation()
+        if getattr(self, "_rl_controlled", False):
+            self._rl_ensure_safe_room_upgrade_state_exposed()
+            self._rl_auto_resolve_safe_room_upgrades()
         self._vfx.update(dt)
 
     def _update_death_sequence(self, dt: float) -> None:
@@ -4409,48 +4580,7 @@ class GameScene(BaseScene):
             self._keys_held.add(event.key)
             # Safe Room: F to collect heal (+30% max HP); excess → reserve charges (H is reserve heal)
             if event.key == pygame.K_f and self._player is not None:
-                if (
-                    self._room_controller is not None
-                    and self._room_controller.current_room is not None
-                    and self._room_controller.current_room.room_type == RoomType.SAFE
-                    and not self._safe_room_heal_done
-                    and self._near_safe_room_heal
-                    and self._safe_room_heal_pos is not None
-                ):
-                    base_max_hp = getattr(self._player, "base_max_hp", 100.0)
-                    _cr = self._room_controller.current_room
-                    _psnh = self.player_state.name if self.player_state is not None else None
-                    _bidx_safe = int(getattr(_cr, "biome_index", 1)) if _cr is not None else 1
-                    if _bidx_safe == 2:
-                        _srm = biome2_safe_room_heal_multiplier(_psnh)
-                    elif _bidx_safe == 3:
-                        _srm = biome3_safe_room_heal_multiplier(_psnh)
-                    elif _bidx_safe == 4:
-                        _srm = biome4_safe_room_heal_multiplier(_psnh)
-                    else:
-                        _srm = 1.0
-                    heal_amount = float(base_max_hp) * self._difficulty_params.rewards.safe_room_heal_percent * _srm
-                    _hp_before_safe = self._player_hp_percent()
-                    applied = self._player.apply_incoming_heal(heal_amount)
-                    if applied > 0.0:
-                        self._metrics.record_healing(applied)
-                        self._metrics.record_rl_safe_room_heal_success()
-                    else:
-                        self._metrics.record_rl_safe_room_heal_failed()
-                    self._rl_log_heal_applied(
-                        heal_source="safe_room",
-                        hp_before=_hp_before_safe,
-                        hp_after=self._player_hp_percent(),
-                        heal_amount_applied=float(applied),
-                    )
-                    self._safe_room_heal_done = True
-                    self._safe_room_upgrade_pending = True
-                    pc_up = self._safe_room_upgrade_pick_count_for_current_room()
-                    self._safe_room_upgrade_picks_remaining = pc_up if pc_up > 0 else 0
-                    if pc_up == 2:
-                        self._safe_room_biome4_chosen = set()
-                    self._vfx.spawn_floating_text(self._safe_room_heal_pos, "+30% Health", (80, 255, 120))
-                    self._heal_flash_timer = 0.35
+                if self._try_apply_safe_room_f_heal():
                     return True
             # Reserve heal: H applies front of FIFO reserve_heal_pool (exact HP), cooldown anti-spam
             if event.key == pygame.K_h and self._player is not None:
@@ -4519,21 +4649,7 @@ class GameScene(BaseScene):
             ):
                 choice = (event.key - pygame.K_1) + 1  # 1, 2, 3, or 4
                 if choice not in self._safe_room_biome4_chosen:
-                    if choice == 1:
-                        self._player.apply_safe_room_health_upgrade(SAFE_ROOM_UPGRADE_HEALTH_MULT)
-                    elif choice == 2:
-                        self._player.move_speed_mult = SAFE_ROOM_UPGRADE_SPEED_MULT
-                    elif choice == 3:
-                        self._player.attack_damage_mult = SAFE_ROOM_UPGRADE_ATTACK_MULT
-                    elif choice == 4:
-                        self._player.damage_taken_mult = SAFE_ROOM_UPGRADE_DEFENCE_MULT
-                    self._metrics.record_upgrade("safe_room", f"b4_{choice}")
-                    self._safe_room_biome4_chosen.add(choice)
-                    self._safe_room_upgrade_picks_remaining = max(0, self._safe_room_upgrade_picks_remaining - 1)
-                    if len(self._safe_room_biome4_chosen) >= 2:
-                        self._safe_room_upgrade_chosen_this_room = True
-                        self._safe_room_upgrade_picks_remaining = 0
-                        self._safe_room_upgrade_pending = False
+                    self._apply_biome4_safe_room_upgrade_choice(choice)
                 return True
             # Biome 3 SAFE: 1=Health, 2=Speed, 3=Attack (pick one).
             if (
@@ -4546,16 +4662,7 @@ class GameScene(BaseScene):
                 and event.key in (pygame.K_1, pygame.K_2, pygame.K_3)
             ):
                 choice = (event.key - pygame.K_1) + 1  # 1, 2, or 3
-                if choice == 1:  # Health +20% max HP
-                    self._player.apply_safe_room_health_upgrade(SAFE_ROOM_UPGRADE_HEALTH_MULT)
-                elif choice == 2:  # Speed +10%
-                    self._player.move_speed_mult = SAFE_ROOM_UPGRADE_SPEED_MULT
-                elif choice == 3:  # Attack +12%
-                    self._player.attack_damage_mult = SAFE_ROOM_UPGRADE_ATTACK_MULT
-                self._metrics.record_upgrade("safe_room", f"b3_{choice}")
-                self._safe_room_upgrade_chosen_this_room = True
-                self._safe_room_upgrade_picks_remaining = 0
-                self._safe_room_upgrade_pending = False
+                self._apply_biome3_safe_room_upgrade_choice(choice)
                 return True
             if (
                 self._safe_room_upgrade_pick_count_for_current_room() == 0
