@@ -1,0 +1,56 @@
+## Prompt Title: Game config (`game/config.py`)
+
+### CRITICAL REQUIREMENTS ###
+- **MANDATORY:** ONLY write test code (pytest).
+- **CRITICAL:** DO NOT modify production code.
+- **CRITICAL:** DO NOT change game logic.
+- Tests must be additive and isolated under `tests/`.
+- Use deterministic seeds where the audit requires reproducibility.
+- Source coverage: `docs/game_testing_high_level_audit.md` — components: §3 Game config
+
+---
+
+### OBJECTIVE ###
+Unit tests that key constants are positive / in valid ranges; load consistency per audit §3.
+
+---
+
+### FILES TO CREATE ###
+- `tests/unit/test_game_config_sanity.py`
+
+---
+
+### TEST CASES (MANDATORY) ###
+- `test_cooldowns_positive`
+- `test_hp_values_positive`
+- `test_edge_no_negative_durations`
+
+---
+
+### CONCURRENCY / TIMING TESTS (IF APPLICABLE) ###
+- N/A
+
+---
+
+### DEADLOCK SAFETY (IF APPLICABLE) ###
+- N/A
+
+---
+
+### ACCEPTANCE CRITERIA ###
+- **MANDATORY:** Tests pass without editing `src/` except test utilities if already allowed by project.
+- **CRITICAL:** No flaky tests; fixed seeds for RNG-dependent assertions.
+- **CRITICAL:** Same seed + inputs ⇒ same observable outcomes.
+
+---
+
+### CRITICAL REMINDER ###
+ONLY create or extend test files listed above.
+NO production code edits.
+NO refactoring.
+NO design changes.
+
+---
+
+### CRITICAL END ###
+Execute this prompt as a single Cursor task; then run `pytest` on new tests.

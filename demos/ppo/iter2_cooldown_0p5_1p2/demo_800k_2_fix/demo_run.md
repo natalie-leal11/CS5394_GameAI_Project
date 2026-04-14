@@ -1,6 +1,6 @@
 # PPO human demo record
 
-- **UTC time:** 2026-04-09T18:31:04Z
+- **UTC time:** 2026-04-09T21:39:43Z
 - **Model path:** `C:\Users\maham\Downloads\CS5394_GameAI_Project\models\ppo\iter2_cooldown_0p5_1p2\stage_next_fix\dungeon_ppo_best.zip`
 - **Episodes:** 1
 - **Deterministic:** True
@@ -9,7 +9,7 @@
 ## Command
 
 ```text
-'C:\Users\maham\Downloads\CS5394_GameAI_Project\src\rl\demo_ppo.py' --model ../models/ppo/iter2_cooldown_0p5_1p2/stage_next_fix/dungeon_ppo_best.zip --experiment iter2_cooldown_0p5_1p2 --stage next_fix
+'C:\Users\maham\Downloads\CS5394_GameAI_Project\src\rl\demo_ppo.py' --model ../models/ppo/iter2_cooldown_0p5_1p2/stage_next_fix/dungeon_ppo_best.zip --experiment iter2_cooldown_0p5_1p2 --stage 800k_2_fix
 ```
 
 ## Notes

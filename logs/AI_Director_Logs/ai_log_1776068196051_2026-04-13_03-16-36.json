@@ -1,0 +1,21 @@
+[
+  {
+    "event": "run_header",
+    "run_id": "5d569515-7c1f-4de2-826c-9ad4b80ea2fe",
+    "seed": 1776068196051
+  },
+  {
+    "run_id": "5d569515-7c1f-4de2-826c-9ad4b80ea2fe",
+    "run_seed": 1776068196051,
+    "room_index": 3,
+    "biome_index": 1,
+    "room_type": "SAFE",
+    "player_state": "STABLE",
+    "heal_source": "safe_room",
+    "hp_percent_before": 42.0,
+    "hp_percent_after": 72.0,
+    "heal_amount_applied": 60.0,
+    "consumed": true,
+    "event": "heal_applied"
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "event": "run_header",
+    "run_id": "a3409ecd-1989-408d-9b32-26f2934d58e7",
+    "seed": 1775779041847
+  },
+  {
+    "run_id": "a3409ecd-1989-408d-9b32-26f2934d58e7",
+    "seed": 1775779041847,
+    "room_index": 0,
+    "biome_index": 1,
+    "room_type": "START",
+    "player_state": "DOMINATING",
+    "difficulty_modifier": 1.15,
+    "enemy_adjustment": 1,
+    "reinforcement_chance": 0.3,
+    "room_result": "clean_clear",
+    "hp_end": 100.0,
+    "damage_taken": 0.0,
+    "hp_percent_start_room": 100.0,
+    "min_hp_during_room": 100.0,
+    "max_hp_during_room": 100.0,
+    "hp_lost_in_room": 0.0,
+    "life_index": 0,
+    "lives_remaining": 3,
+    "room_attempt_index": 1,
+    "session_room_completion_seq": 1,
+    "checkpoint_retry_count": 0,
+    "room_clear_time": 12.050000000000178,
+    "rooms_cleared": 1,
+    "total_run_time": 12.066666666666846,
+    "victory_or_defeat": "none",
+    "healing_received": 0.0,
+    "enemy_count": 1,
+    "enemy_composition": [
+      "TrainingDummy"
+    ],
+    "elite_count": 0,
+    "reinforcement_applied": false,
+    "encounter_director_snapshot_used": {
+      "difficulty_modifier": 1.0,
+      "enemy_adjustment": 0,
+      "reinforcement_chance": 0.1,
+      "composition_bias": "normal",
+      "last_player_state_name": "STABLE",
+      "pressure_level": "medium",
+      "composition_bias_b2": "balanced",
+      "reinforcement_chance_b2": 0.15,
+      "hazard_tune_factor_b2": 1.0,
+      "composition_bias_b3": "balanced",
+      "ranged_bias_b3": "medium",
+      "reinforcement_chance_b3": 0.15,
+      "hazard_tune_factor_b3": 1.0,
+      "composition_bias_b4": "balanced",
+      "boss_pressure": "medium",
+      "pacing_bias": "normal",
+      "reinforcement_chance_b4": 0.15,
+      "hazard_tune_factor_b4": 1.0
+    },
+    "event": "room_end"
+  }
+]
