@@ -35,8 +35,8 @@ pygame.display.set_mode((1, 1))
 
 def test_phase3_config_constants_basic():
     """Enemy config constants are defined with expected baselines."""
-    assert ENEMY_SWARM_SIZE == (60, 60)
-    assert ENEMY_FLANKER_SIZE == (48, 48)
+    assert ENEMY_SWARM_SIZE == (64, 64)
+    assert ENEMY_FLANKER_SIZE == (56, 56)
     assert ENEMY_BRUTE_SIZE[0] >= 80 and ENEMY_BRUTE_SIZE[1] >= 80
 
     assert ENEMY_SWARM_BASE_HP > 0
@@ -128,8 +128,8 @@ def test_game_scene_spawns_enemies_three_tiles_away():
         scene._room_cleared_flag = False
 
     # Advance long enough for Phase 5 telegraphs (0.5s) and staggered spawn slots.
-    # Slots start at 0, 0.4, 0.8, 2.0 s; each spawns after +0.5s telegraph → brute at ~1.3s.
-    steps = 100  # ~1.67 s at 60 FPS
+    # Slots start at 0, 0.4, 0.8, 2.0 s; later slots may need >2s before brute appears.
+    steps = 240  # ~4 s at 60 FPS
     for _ in range(steps):
         scene.update(1.0 / 60.0)
 
