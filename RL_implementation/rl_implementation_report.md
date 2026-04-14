@@ -9,7 +9,7 @@
 ## 1. Overview
 
 - **Approach:** Train a **Proximal Policy Optimization (PPO)** agent (Stable-Baselines3) on a **Gymnasium** wrapper around the existing dungeon game (`DungeonEnv`). The policy maps observations (fixed-size vectors from `src/rl/obs.py`) to discrete actions (movement, attacks, dash, and later interact / safe-room actions for curriculum-related features).
-- **Goal:** Learn a policy that **progresses through rooms** (higher `room_index`, rooms cleared) in the full-game setting, despite sparse terminal rewards and dense per-step shaping in `src/rl/reward.py`. **`rl_prompt_19`** (RL-only auto-grant / auto-pick) is **implemented** in `GameScene` (see §8.5 and **Final improvement**). **Fair 50-episode metrics** in §6 include the **`auto_pick_demo`** continuation and a **re-baseline** of **`upgrade_open_demo` 20k** under the same code (`eval_summary_fair_compare_to_auto_pick.md`).
+- **Goal:** Learn a policy that **progresses through rooms** (higher `room_index`, rooms cleared) in the full-game setting, despite sparse terminal rewards and dense per-step shaping in `src/rl/reward.py`. **`rl_prompt_19`** (RL-only auto-grant / auto-pick) and **`rl_prompt_20`** (RL-only **health automation** — orbs, safe-room heal, reserve heal) are **implemented** in `GameScene` (see §8.5–§8.6 and **Final improvement**). **Fair 50-episode metrics** in §6 include the **`auto_pick_demo`** continuation and a **re-baseline** of **`upgrade_open_demo` 20k** under the same code (`eval_summary_fair_compare_to_auto_pick.md`). After **`rl_prompt_20`**, optional continuation runs (e.g. **`auto_heal_demo`**) use the same fair protocol; see **`eval_summary_fair_best.md`** next to each stage folder.
 - **Evaluation:** Headless runs via `python -m rl.eval_ppo` with multiple seeds; reported metrics include **mean reward**, **mean final room index**, **mean max rooms cleared during episode**, and **timeout vs defeat counts**. Default **`TimeLimit`** for full-game eval/training is **`max_episode_steps = 5000`** (`src/rl/config.py` — `PPOConfig` / `EvalConfig`). Curriculum training uses a **shorter** episode cap by default (**800** steps) in `src/rl/train_curriculum_ppo.py` / `src/rl/eval_curriculum.py` (CLI defaults).
 
 ---
@@ -30,6 +30,7 @@ Metrics below use **50 total episodes** (10 per seed × 5 seeds), **deterministi
 | Checkpoint continuation | `iter2_cooldown_0p5_1p2_checkpoint_try` / `fullgame_20k_more` | 20000 | Resume from upgrade-open 20k best | 1.77 | 6.28 | 11.04 | Between 20k upgrade-open and `stage_next_fix` on rooms; 50/50 timeouts (`eval_summary_fair_best.md`) |
 | Resume 50k (final zip) | `iter2_cooldown_0p5_1p2_resume_next_fix` / `fullgame_50k` | (50k train run) | Eval on **`dungeon_ppo_final.zip`** | −8.12 | 1.66 | 2.66 | Non–best checkpoint eval; weak progression (`eval_summary_fair_resume_final.md`) |
 | Auto-pick continuation | `iter2_cooldown_0p5_1p2_auto_pick_demo` / `fullgame_20k` | +20000 from `upgrade_open_demo/stage_fullgame_20k/dungeon_ppo_best.zip` | **5.19** | **10.56** | **13.02** | 50/50 timeouts; **best fair progression** after `rl_prompt_19` (`eval_summary_fair_best.md`) |
+| Auto-heal continuation (experimental) | `iter2_cooldown_0p5_1p2_auto_heal_demo` / `fullgame_20k` | +20000 from `auto_pick_demo/stage_fullgame_20k/dungeon_ppo_best.zip` (after `rl_prompt_20`) | **−4.49** | **3.04** | **5.86** | **Regression** vs `auto_pick` fair re-baseline; 50/50 timeouts (`eval_summary_fair_best.md`) |
 
 **Other eval on disk:** `stage_600k` has an `eval_summary.md` with **only 1 episode / 1 seed** — not comparable to the 50-episode protocol; omitted from the main comparison table.
 
@@ -168,7 +169,8 @@ Metrics below use **50 total episodes** (10 per seed × 5 seeds), **deterministi
 |-----------------------------------|-------------|-------------------------|-------------------------|----------------------------------|--------|
 | `iter2_cooldown_0p5_1p2/stage_next_fix/dungeon_ppo_best.zip` | 2.41 | 4.86 | 11.82 | 2.78 | Strong mid-run baseline |
 | `iter2_cooldown_0p5_1p2_upgrade_open_demo/stage_fullgame_20k/dungeon_ppo_best.zip` | 2.18 | 7.32 | 10.80 | 1.89 | Same checkpoint, **re-evaluated** under current GameScene + `rl_prompt_19` (50 ep; `eval_summary_fair_compare_to_auto_pick.md`) |
-| `iter2_cooldown_0p5_1p2_auto_pick_demo/stage_fullgame_20k/dungeon_ppo_best.zip` | **5.19** | **10.56** | **13.02** | 3.87 | **Best performing** after auto-grant rewards + auto-pick upgrades; **medium** stability (still 50/50 timeouts, but **better progression**); mean max **room index during episode** ~**11.54** (`eval_summary_fair_best.md`) |
+| `iter2_cooldown_0p5_1p2_auto_pick_demo/stage_fullgame_20k/dungeon_ppo_best.zip` | **5.55** | **11.82** | **12.90** | 1.92 | **Best performing** after auto-grant rewards + auto-pick upgrades; **same-protocol re-baseline** post-`rl_prompt_21` env patch (`eval_summary_fair_rebaseline_auto_fix_compare.md`, 50 ep) — historical **5.19 / 10.56** in older `eval_summary_fair_best.md` predates this re-run |
+| `iter2_cooldown_0p5_1p2_auto_fix_demo/stage_fullgame_20k/dungeon_ppo_best.zip` | −1.24 | 4.00 | 8.56 | 3.07 | **+20k** from `auto_pick` best after **`rl_prompt_21`** stability patch; **regression** vs re-baselined `auto_pick` on room metrics (`eval_summary_fair_best.md`) |
 | `iter2_cooldown_0p5_1p2_upgrade_open_demo_cont/stage_fullgame_plus30k/dungeon_ppo_best.zip` | −3.45 | 5.36 | 6.42 | 5.20 | Regression vs 20k upgrade-open |
 | `iter2_cooldown_0p5_1p2_checkpoint_try/stage_fullgame_20k_more/dungeon_ppo_best.zip` | 1.77 | 6.28 | 11.04 | 1.89 | Intermediate; not best |
 
@@ -177,7 +179,9 @@ Metrics below use **50 total episodes** (10 per seed × 5 seeds), **deterministi
 **Sources:**  
 `stage_next_fix/eval_summary_fair_best.md`  
 `upgrade_open_demo/stage_fullgame_20k/eval_summary_fair_compare_to_auto_pick.md`  
-`auto_pick_demo/stage_fullgame_20k/eval_summary_fair_best.md`  
+`auto_pick_demo/stage_fullgame_20k/eval_summary_fair_best.md` (historical row)  
+`auto_pick_demo/stage_fullgame_20k/eval_summary_fair_rebaseline_auto_fix_compare.md` (post-`rl_prompt_21`, same protocol as `auto_fix` fair eval)  
+`auto_fix_demo/stage_fullgame_20k/eval_summary_fair_best.md`  
 `upgrade_open_demo_cont/stage_fullgame_plus30k/eval_summary_fair_best.md`  
 `checkpoint_try/stage_fullgame_20k_more/eval_summary_fair_best.md`
 
@@ -191,8 +195,8 @@ Metrics below use **50 total episodes** (10 per seed × 5 seeds), **deterministi
 
 **Why:**
 
-- **Highest mean reward** in the updated fair comparison (**~5.19** vs **~2.18** for the re-baselined `upgrade_open_demo` 20k checkpoint under the same code — §6).
-- **Best room progression:** roughly **~11–12** rooms deep by **max room index during episode** (**~11.54**), mean final room index **~10.56**, mean max rooms cleared **~13.02** (50 episodes, deterministic, 5 seeds).
+- **Highest mean reward** in the updated fair comparison (**~5.55** post-`rl_prompt_21` re-baseline vs **~2.18** for the re-baselined `upgrade_open_demo` 20k checkpoint under the same code — §6; older snapshot **~5.19 / ~10.56** in `eval_summary_fair_best.md`).
+- **Best room progression:** post–env-patch re-baseline: mean final room index **~11.82**, mean max room index during episode **~12.26**, mean max rooms cleared **~12.90** (50 episodes, deterministic, 5 seeds; `eval_summary_fair_rebaseline_auto_fix_compare.md`).
 - **Benefits from simplified RL interaction:** auto-granted single rewards and fixed-priority safe-room upgrades (`rl_prompt_19`, §8.5) remove UI stall for the policy so training and eval emphasize **movement and combat**.
 - **More consistent** than the re-baseline upgrade-open run on several progression axes (see §6); still **50/50 timeouts** — not a solved game.
 
@@ -227,6 +231,43 @@ Metrics below use **50 total episodes** (10 per seed × 5 seeds), **deterministi
 
 ---
 
+## 8.6 RL Health Automation Update (`rl_prompt_20`)
+
+**Documented in:** `RL_prompts/rl_prompt_20.md`.
+
+For **RL-controlled** runs only (`GameScene._rl_controlled`):
+
+- **Normal-room heal rewards:** Room-clear / boss-style heal orbs in the shared **`_rewards`** list are **auto-granted** without walking into pickup range (**`_rl_auto_reward`** in the reward-collection loop).
+- **Safe-room heal:** Uses the **same** shared helper as manual **F** — **`_try_apply_safe_room_f_heal`** — with **automatic** invocation via **`_rl_try_auto_safe_room_heal`** (no KEYDOWN).
+- **Reserve / extra heal:** **`_rl_try_auto_reserve_heal`** runs **after** **`reserve_heal_cooldown_timer`** is decremented for the frame; it applies **`try_consume_reserve_heal`** only when **missing HP ≥ front `reserve_heal_pool` chunk** (avoids auto-spam on partial-chunk situations manual **H** still covers).
+- **Manual player:** Unchanged (same `handle_event` paths).
+- **Upgrade auto-flow:** **`_rl_auto_resolve_safe_room_upgrades`** / **`_rl_ensure_safe_room_upgrade_state_exposed`** remain as under **`rl_prompt_19`**.
+
+**Why:** Further **reduce interaction dependency** so the policy can focus on **combat and progression**; any new **+20k continuation** trained after this change should be evaluated with the **fair 50-episode** protocol and compared to the prior submission candidate (`auto_pick_demo` **20k best**) before switching the recommended demo zip.
+
+**Empirical note (2026-04-14):** A **+20k** continuation **`iter2_cooldown_0p5_1p2_auto_heal_demo` / `stage_fullgame_20k`** (resume from `auto_pick_demo` **20k best**) was trained and fair-evaluated. It **did not** improve on the baseline: **`eval_summary_fair_best.md`** in that folder reports **lower** mean reward and room progression than the **same-protocol** re-baseline of **`auto_pick_demo`** (`eval_summary_fair_compare_to_auto_heal.md`). **Keep `auto_pick_demo` `dungeon_ppo_best.zip` as the submission candidate**; treat **`auto_heal_demo`** as **experimental** unless a later run recovers metrics.
+
+---
+
+### RL Stability Fix (Final Patch)
+
+**Documented in:** `RL_prompts/rl_prompt_21.md`.
+
+This pass is **environment behavior only** (no reward weights, no PPO changes). Implemented in **`GameScene`** for **`_rl_controlled`**:
+
+- **Safe-room flow:** Lazy-init of the safe-room heal anchor so RL does not miss heal due to frame ordering; manual play still requires proximity to the heal point. RL skips the proximity gate. After auto-heal, **`_rl_ensure_safe_room_upgrade_state_exposed`** and **`_rl_auto_resolve_safe_room_upgrades`** run in the same update slice so upgrade picks are not skipped by state ordering.
+- **Reward auto-collection:** The heal-reward loop runs **before** door transition / **`load_room`**, so **`_rewards` is not cleared** before room-clear orbs and boss rewards are applied (RL auto-collect unchanged — **ordering** fixed).
+- **Room transition:** An RL-only timer from combat room clear plus a **door watchdog** (`door_system.open_all()` if still no open door shortly after **`DOOR_UNLOCK_DELAY_SEC`**) prevents soft-stuck at exits without altering movement or pathfinding.
+
+**Note:** This is a **stability / correctness** patch for the RL env, **not** a deliberate reward redesign. Compare **`iter2_cooldown_0p5_1p2_auto_fix_demo`** **20k** fair eval to **`auto_pick_demo`** before changing the recommended submission zip.
+
+| Experiment | Change | Result |
+|------------|--------|--------|
+| `auto_heal_demo` | Auto heal logic (`rl_prompt_20`) | Regression vs `auto_pick_demo` (see §8.6) |
+| `auto_fix_demo` (NEW) | Bug fix / env stability only (`rl_prompt_21`) | **Regression** vs same-protocol re-baseline of `auto_pick_demo` (mean reward **−1.24** vs **5.55**, mean final room **4.00** vs **11.82** — `eval_summary_fair_best.md` vs `eval_summary_fair_rebaseline_auto_fix_compare.md`) |
+
+---
+
 ## 9. Final conclusion
 
 **Achieved:**
@@ -243,6 +284,7 @@ Metrics below use **50 total episodes** (10 per seed × 5 seeds), **deterministi
 
 **Future work (brief):**
 
+- **Submission candidate:** **`auto_pick_demo`** **20k** `dungeon_ppo_best.zip` — a post-**`rl_prompt_20`** **`auto_heal_demo`** +20k continuation was **fair-evaluated** and **regressed** (see §8.6 empirical note); **do not** switch the recommended demo zip to **`auto_heal_demo`** unless a future run beats the baseline. A post-**`rl_prompt_21`** **`auto_fix_demo`** +20k continuation likewise **regressed** vs a same-protocol re-baseline of **`auto_pick_demo`** (§6, §8.6 stability table); **keep** **`auto_pick_demo`** as the submission zip.
 - Optional longer training or adaptive **TimeLimit**; curriculum-to-full-game **transfer** validation; richer **success metrics** beyond room index (e.g. boss clears) — **not measured here**.
 
 ### Final improvement: auto-grant and auto-pick simplification
@@ -252,6 +294,7 @@ For **RL-controlled** runs only (`GameScene._rl_controlled`):
 - **Single rewards** (room-clear orbs, boss rewards, etc.) are **auto-granted** where the existing RL path already treats pickups as in-range without extra navigation.
 - **Safe-room heal** is **auto-applied** (same effect as **F**) so the policy does not spend steps on positioning for the heal prompt.
 - **Biome 3 / 4 safe-room upgrades** are **auto-picked** with a **fixed priority** (health first; Biome 4 uses order **1 → 3 → 4 → 2** for the two picks), removing dependence on discrete “choice” actions for progression.
+- **Health automation (`rl_prompt_20`):** Normal-room heal orbs **auto-apply**; safe-room heal uses the **shared** **`_try_apply_safe_room_f_heal`** path; **reserve** heals **auto-use** after cooldown when **missing HP ≥ front reserve chunk** (see §8.6).
 - **Effect:** Less **UI / interaction** overhead for RL, clearer signal for **gameplay and room progression**; fair evals show **higher mean final room index and mean reward** for **`auto_pick_demo`** vs the re-baselined **`upgrade_open_demo`** checkpoint (§6). Progression depth improved substantially; the agent can focus on **combat and movement** rather than **interaction mechanics**.
 
 ---
@@ -260,7 +303,8 @@ For **RL-controlled** runs only (`GameScene._rl_controlled`):
 
 | Metric / claim | Primary file |
 |----------------|--------------|
-| 300k, 900k, stage_next_fix, upgrade_open, auto_pick_demo, plus30k, checkpoint_try, auto_reward, merge | `models/ppo/.../eval_summary*.md` (paths listed in sections) |
+| 300k, 900k, stage_next_fix, upgrade_open, auto_pick_demo, auto_heal_demo, plus30k, checkpoint_try, auto_reward, merge | `models/ppo/.../eval_summary*.md` (paths listed in sections) |
+| RL simplification prompts | `RL_prompts/rl_prompt_19.md`, `RL_prompts/rl_prompt_20.md`, `RL_prompts/rl_prompt_21.md` |
 | Timesteps per run | `models/ppo/.../milestone_train.md` |
 | 5000 vs 800 step limits | `src/rl/config.py`, `src/rl/train_curriculum_ppo.py`, `src/rl/eval_curriculum.py` |
 | Curriculum wrappers | `src/rl/curriculum_wrappers.py` |

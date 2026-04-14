@@ -1,6 +1,6 @@
 # RL prompts — index (implementation order)
 
-This folder documents **prompts and specs that match what was implemented** for reinforcement learning in this project. Items **`rl_prompt_01`–`rl_prompt_12`** follow the **on-policy PPO agent pipeline** (environment → reward → training → evaluation → longer runs → milestone experiments → curriculum). Items **`rl_prompt_13`–`rl_prompt_18`** follow the **offline SRS integration** pack (difficulty schema through guardrails). Item **`rl_prompt_19`** documents a **post-training practical simplification**: auto-grant single rewards and auto-pick multi-choice upgrades on the RL path (see file for full spec).
+This folder documents **prompts and specs that match what was implemented** for reinforcement learning in this project. Items **`rl_prompt_01`–`rl_prompt_12`** follow the **on-policy PPO agent pipeline** (environment → reward → training → evaluation → longer runs → milestone experiments → curriculum). Items **`rl_prompt_13`–`rl_prompt_18`** follow the **offline SRS integration** pack (difficulty schema through guardrails). Item **`rl_prompt_19`** documents a **post-training practical simplification**: auto-grant single rewards and auto-pick multi-choice upgrades on the RL path. Item **`rl_prompt_20`** documents **RL-only full health automation** (normal-room orbs, safe-room heal, reserve heal rules) in `GameScene`.
 
 Each `rl_prompt_XX.md` uses the same section template: **Objective**, **Scope**, **Changes required**, **Constraints**, **Implementation steps**, **Deliverables**, **Sources**, plus a short **Implementation (repo)** line pointing at code paths.
 
@@ -25,9 +25,10 @@ Each `rl_prompt_XX.md` uses the same section template: **Objective**, **Scope**,
 | 17 | [rl_prompt_17.md](rl_prompt_17.md) | Phase 4 — runtime loader integration |
 | 18 | [rl_prompt_18.md](rl_prompt_18.md) | Phase 5 — guardrails & verification |
 | 19 | [rl_prompt_19.md](rl_prompt_19.md) | Auto-grant single rewards & auto-pick multi-choice upgrades (RL path; final submission simplification) |
+| 20 | [rl_prompt_20.md](rl_prompt_20.md) | RL-only health automation — normal-room orbs, safe-room heal (shared helper), reserve heal auto-use after cooldown |
 
 **Reading order for “how PPO was implemented”:** start at **`rl_prompt_01`** and read through **`rl_prompt_12`**. PPO itself is **`rl_prompt_05`** (training) and **`rl_prompt_06`** (evaluation and wrapper stack around the env).
 
 ---
 
-*Former single-file content was split into `rl_prompt_01.md`–`rl_prompt_18.md`; **`rl_prompt_19.md`** was added for the auto-grant / auto-pick simplification. This file is the table of contents only.*
+*Former single-file content was split into `rl_prompt_01.md`–`rl_prompt_18.md`; **`rl_prompt_19.md`**–**`rl_prompt_20.md`** extend post-training RL simplifications. This file is the table of contents only.*
