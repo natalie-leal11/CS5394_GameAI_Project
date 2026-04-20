@@ -1,0 +1,134 @@
+@startuml
+title CS5394 Game - Submission Class Diagram (Implementation-Aligned)
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+left to right direction
+
+package "Scene Runtime" {
+  class SceneManager
+  abstract class BaseScene
+  class GameScene
+  class StartScene
+  class ControlsScene
+  class SettingsScene
+
+  BaseScene <|-- GameScene
+  BaseScene <|-- StartScene
+  BaseScene <|-- ControlsScene
+  BaseScene <|-- SettingsScene
+
+  SceneManager o-- GameScene
+  SceneManager o-- StartScene
+  SceneManager o-- ControlsScene
+  SceneManager o-- SettingsScene
+}
+
+package "Dungeon / Room Flow" {
+  class RoomController
+  class Room
+  enum RoomType
+  class DoorSystem
+  class Door
+  enum DoorState
+  class HazardSystem
+
+  RoomController --> Room : loads
+  RoomController o-- DoorSystem
+  RoomController o-- HazardSystem
+  DoorSystem o-- Door
+  Door --> DoorState
+  Room --> RoomType
+}
+
+package "AI Runtime" {
+  class AIDirector
+  class PlayerModel
+  class PlayerStateClass
+  class MetricsTracker
+  class RunMetrics
+  class RoomMetrics
+  class DifficultyParams
+  class AILogger
+  class DebugOverlay
+
+  PlayerModel --> PlayerStateClass
+  MetricsTracker o-- RunMetrics
+  MetricsTracker o-- RoomMetrics
+  PlayerModel --> MetricsTracker : summary input
+  AIDirector --> PlayerStateClass
+  AIDirector --> DifficultyParams
+  PlayerModel --> DifficultyParams
+}
+
+package "Gameplay Core" {
+  class Player
+  class EnemyBase
+  class Swarm
+  class Flanker
+  class Brute
+  class Heavy
+  class Ranged
+  class MiniBoss
+  class MiniBoss2
+  class Biome3MiniBoss
+  class FinalBoss
+  class Projectile
+  class SpawnSystem
+  class SpawnSlot
+  class VfxManager
+  class DamageEvent
+
+  EnemyBase <|-- Swarm
+  EnemyBase <|-- Flanker
+  EnemyBase <|-- Brute
+  EnemyBase <|-- Heavy
+  EnemyBase <|-- Ranged
+  EnemyBase <|-- MiniBoss
+  EnemyBase <|-- MiniBoss2
+  EnemyBase <|-- Biome3MiniBoss
+  EnemyBase <|-- FinalBoss
+
+  SpawnSystem o-- SpawnSlot
+}
+
+package "RL Runtime Boundary" {
+  class DungeonEnv
+}
+
+GameScene --> RoomController
+GameScene --> Player
+GameScene --> SpawnSystem
+GameScene --> VfxManager
+GameScene ..> DamageEvent : combat events
+GameScene --> MetricsTracker
+GameScene --> PlayerModel
+GameScene --> AIDirector
+GameScene --> AILogger
+GameScene --> DebugOverlay
+GameScene --> EnemyBase : manages enemy list
+GameScene --> Projectile : manages projectiles
+
+DungeonEnv --> SceneManager
+DungeonEnv --> GameScene
+
+note bottom of GameScene
+Checkpoint/respawn, safe-room upgrades, boss flow,
+and seed-driven deterministic run setup are implemented in GameScene.
+end note
+
+note bottom of AIDirector
+High-level deterministic planner only.
+Per-enemy behavior is not controlled directly.
+end note
+
+note bottom of RoomController
+Room generation and sequencing are function-based modules
+(e.g. room/srs_biome_order/seeded_encounter_specs), not classes.
+end note
+
+note "Seed / RNG is module-based in game/rng.py\n(run seed, variant id, channel/room derivation)." as N1
+GameScene .. N1
+RoomController .. N1
+
+@enduml
