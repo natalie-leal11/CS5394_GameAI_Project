@@ -1,4 +1,4 @@
-# Phase 3 — Incremental Coding Prompt  
+# Phase 3 — Incremental Coding Prompt
 # Enemy System (swarm / flanker / brute + elite overlay)
 
 Implement **only** the following. Do not add combat VFX (slash, hit sparks, damage numbers), telegraphs, spawn portal, dungeon rooms, or mini boss. Stop when this phase is complete.

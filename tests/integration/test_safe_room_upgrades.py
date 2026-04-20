@@ -100,12 +100,16 @@ def test_biome3_safe_room_upgrade_flow_allows_exactly_one_pick():
     assert scene._safe_room_upgrade_chosen_this_room is False
 
     # One valid selection completes upgrade flow for biome 3.
+    # Health upgrade (1): implementation grants bonus healing via apply_safe_room_health_upgrade and
+    # records multiplier on _safe_room_health_mult; it does not raise base_max_hp / max_hp caps.
     old_max_hp = float(scene._player.max_hp)
+    old_health_mult = float(getattr(scene._player, "_safe_room_health_mult", 1.0))
     _press_key(scene, pygame.K_1)
     assert scene._safe_room_upgrade_pending is False
     assert scene._safe_room_upgrade_picks_remaining == 0
     assert scene._safe_room_upgrade_chosen_this_room is True
-    assert scene._player.max_hp > old_max_hp
+    assert float(scene._player.max_hp) == old_max_hp
+    assert float(getattr(scene._player, "_safe_room_health_mult", 1.0)) > old_health_mult
 
     # Further choices should not apply once room upgrade flow is complete.
     max_hp_after_first = float(scene._player.max_hp)

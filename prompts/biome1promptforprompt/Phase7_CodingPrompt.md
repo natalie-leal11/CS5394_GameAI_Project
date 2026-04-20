@@ -1,4 +1,4 @@
-# Phase 7 — Incremental Coding Prompt  
+# Phase 7 — Incremental Coding Prompt
 # Dungeon + Doors + Hazards
 
 Implement **only** the following. Do not add full 30-room run, final boss, biome transitions, or meta progression. Stop when this phase is complete.

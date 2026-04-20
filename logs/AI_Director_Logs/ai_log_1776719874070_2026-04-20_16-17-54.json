@@ -1,0 +1,15 @@
+[
+  {
+    "event": "run_header",
+    "run_id": "7d23f751-1375-40ab-a1a8-1191a699b198",
+    "seed": 1776719874070
+  },
+  {
+    "run_id": "7d23f751-1375-40ab-a1a8-1191a699b198",
+    "seed": 1776719874070,
+    "victory_or_defeat": "aborted",
+    "total_run_time": 0.0,
+    "rooms_cleared": 0,
+    "event": "session_end"
+  }
+]

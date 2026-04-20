@@ -1,4 +1,6 @@
 @startuml
+' High-level relationships only. For SRS-style visibility (+/-/ #), properties,
+' and corrected boss hierarchy, see Core_Class_Diagram_SRS_Figure.puml
 title CS5394 Game - Submission Class Diagram (Implementation-Aligned)
 
 skinparam classAttributeIconSize 0
@@ -22,6 +24,7 @@ package "Scene Runtime" {
   SceneManager o-- StartScene
   SceneManager o-- ControlsScene
   SceneManager o-- SettingsScene
+  SceneManager --> DifficultyParams
 }
 
 package "Dungeon / Room Flow" {
@@ -42,13 +45,13 @@ package "Dungeon / Room Flow" {
 }
 
 package "AI Runtime" {
+  class DifficultyParams
   class AIDirector
   class PlayerModel
   class PlayerStateClass
   class MetricsTracker
   class RunMetrics
   class RoomMetrics
-  class DifficultyParams
   class AILogger
   class DebugOverlay
 
@@ -73,6 +76,7 @@ package "Gameplay Core" {
   class MiniBoss2
   class Biome3MiniBoss
   class FinalBoss
+  class TrainingDummy
   class Projectile
   class SpawnSystem
   class SpawnSlot
@@ -84,10 +88,8 @@ package "Gameplay Core" {
   EnemyBase <|-- Brute
   EnemyBase <|-- Heavy
   EnemyBase <|-- Ranged
-  EnemyBase <|-- MiniBoss
-  EnemyBase <|-- MiniBoss2
-  EnemyBase <|-- Biome3MiniBoss
-  EnemyBase <|-- FinalBoss
+  ' MiniBoss, MiniBoss2, Biome3MiniBoss, FinalBoss, TrainingDummy are standalone
+  ' (duck-typed enemy contract; not subclasses of EnemyBase).
 
   SpawnSystem o-- SpawnSlot
 }
@@ -106,7 +108,12 @@ GameScene --> PlayerModel
 GameScene --> AIDirector
 GameScene --> AILogger
 GameScene --> DebugOverlay
-GameScene --> EnemyBase : manages enemy list
+GameScene --> EnemyBase : standard enemies list
+GameScene .. MiniBoss : optional instances
+GameScene .. MiniBoss2
+GameScene .. Biome3MiniBoss
+GameScene .. FinalBoss
+GameScene .. TrainingDummy
 GameScene --> Projectile : manages projectiles
 
 DungeonEnv --> SceneManager

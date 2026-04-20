@@ -34,11 +34,11 @@ This document records issues, inconsistencies, and ambiguities in `biome4_prompt
 ## 3. Enemy sizes (Section 9)
 
 **Issue:** Document specifies:
-- Swarm → 60×60  
-- Flanker → 48×48  
-- Brute → 80×80  
-- Heavy → 88×88  
-- Ranged → 64×64  
+- Swarm → 60×60
+- Flanker → 48×48
+- Brute → 80×80
+- Heavy → 88×88
+- Ranged → 64×64
 
 Existing config (e.g. `config.py`) uses different sizes (e.g. Swarm 64×64, Flanker 56×56, etc.).
 

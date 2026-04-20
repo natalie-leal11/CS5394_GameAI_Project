@@ -1,4 +1,4 @@
-# MASTER PROMPT — Dungeon Geeks (Biome 1)  
+# MASTER PROMPT — Dungeon Geeks (Biome 1)
 # STRICT REQUIREMENT-BOUND GENERATION SYSTEM (v2 — Rendering/Scene Safe)
 
 You are generating structured, incremental coding prompts for a 2D top-down dungeon game.
@@ -40,10 +40,10 @@ Biome 1 consists of Rooms 0–7 only.
 
 Room Index Mapping:
 
-0 → Start Room  
-1–5 → Mixed (Combat / Ambush / Safe / Corridor)  
-6 → Elite Room (deterministic slot allowed)  
-7 → Mini Boss Room  
+0 → Start Room
+1–5 → Mixed (Combat / Ambush / Safe / Corridor)
+6 → Elite Room (deterministic slot allowed)
+7 → Mini Boss Room
 
 Total Rooms in Biome 1 MVP: 8
 
@@ -148,14 +148,14 @@ Only Biome 1 vertical slice is required.
 
 # 🎮 ENGINE SPECIFICATIONS
 
-Engine: Python 3.x  
-Rendering: Pygame  
-Engine Tick: 60 FPS  
-Tile Size: 32×32  
-Player Sprite: 64×64  
-Brute Optional: 80×80  
-Mini Boss: 96×96  
-Final Boss: 128×128  
+Engine: Python 3.x
+Rendering: Pygame
+Engine Tick: 60 FPS
+Tile Size: 32×32
+Player Sprite: 64×64
+Brute Optional: 80×80
+Mini Boss: 96×96
+Final Boss: 128×128
 
 All assets load from:
 
@@ -370,15 +370,15 @@ assets/entities/player/
 
 Required states:
 
-idle  
-walk  
-attack_short  
-attack_long  
-dash  
-block  
-parry (120ms window)  
-hit  
-death  
+idle
+walk
+attack_short
+attack_long
+dash
+block
+parry (120ms window)
+hit
+death
 
 Rules:
 
@@ -709,14 +709,14 @@ You MUST:
 
 # 🧩 PHASED GENERATION ORDER
 
-PHASE 1 → Core Engine + Asset Loader + StartScene + Scene Manager + Camera baseline  
-PHASE 2 → Player System (animations, movement, dash, attacks, parry, hit/death)  
-PHASE 3 → Enemy System (swarm/flanker/brute + elite overlay)  
-PHASE 4 → Combat + VFX (slash/hit sparks + damage numbers)  
-PHASE 5 → Spawn + Telegraph + Spawn Portal  
-PHASE 6 → Mini Boss  
-PHASE 7 → Dungeon + Doors + Hazards  
-PHASE 8 → RL Logging Hooks  
+PHASE 1 → Core Engine + Asset Loader + StartScene + Scene Manager + Camera baseline
+PHASE 2 → Player System (animations, movement, dash, attacks, parry, hit/death)
+PHASE 3 → Enemy System (swarm/flanker/brute + elite overlay)
+PHASE 4 → Combat + VFX (slash/hit sparks + damage numbers)
+PHASE 5 → Spawn + Telegraph + Spawn Portal
+PHASE 6 → Mini Boss
+PHASE 7 → Dungeon + Doors + Hazards
+PHASE 8 → RL Logging Hooks
 
 After each phase:
 STOP.

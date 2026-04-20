@@ -1,4 +1,4 @@
-# MASTER PROMPT — Dungeon Geeks (Biome 1)  
+# MASTER PROMPT — Dungeon Geeks (Biome 1)
 # STRICT REQUIREMENT-BOUND GENERATION SYSTEM
 
 You are generating structured, incremental coding prompts for a 2D top-down dungeon game.
@@ -28,14 +28,14 @@ If any ambiguity exists → follow Asset Binding Contract.
 
 # 🎮 ENGINE SPECIFICATIONS
 
-Engine: Python 3.x  
-Rendering: Pygame  
-Engine Tick: 60 FPS  
-Tile Size: 32×32  
-Player Sprite: 64×64  
-Brute Optional: 80×80  
-Mini Boss: 96×96  
-Final Boss: 128×128  
+Engine: Python 3.x
+Rendering: Pygame
+Engine Tick: 60 FPS
+Tile Size: 32×32
+Player Sprite: 64×64
+Brute Optional: 80×80
+Mini Boss: 96×96
+Final Boss: 128×128
 
 All assets load from:
 
@@ -161,15 +161,15 @@ assets/entities/player/
 
 Required states:
 
-idle  
-walk  
-attack_short  
-attack_long  
-dash  
-block  
-parry (120ms window)  
-hit  
-death  
+idle
+walk
+attack_short
+attack_long
+dash
+block
+parry (120ms window)
+hit
+death
 
 Rules:
 
@@ -348,14 +348,14 @@ You MUST:
 
 # 🧩 PHASED GENERATION ORDER
 
-PHASE 1 → Core Engine + Asset Loader  
-PHASE 2 → Player System  
-PHASE 3 → Enemy System  
-PHASE 4 → Combat + VFX  
-PHASE 5 → Spawn + Telegraph  
-PHASE 6 → Mini Boss  
-PHASE 7 → Dungeon + Doors  
-PHASE 8 → RL Logging Hooks  
+PHASE 1 → Core Engine + Asset Loader
+PHASE 2 → Player System
+PHASE 3 → Enemy System
+PHASE 4 → Combat + VFX
+PHASE 5 → Spawn + Telegraph
+PHASE 6 → Mini Boss
+PHASE 7 → Dungeon + Doors
+PHASE 8 → RL Logging Hooks
 
 After each phase:
 STOP.

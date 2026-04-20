@@ -1,4 +1,4 @@
-# Phase 4 — Incremental Coding Prompt  
+# Phase 4 — Incremental Coding Prompt
 # Combat + VFX (slash / hit sparks / damage numbers)
 
 Implement **only** the following. Do not add telegraphs, spawn portal, mini boss, dungeon rooms, or RL logging. Stop when this phase is complete.

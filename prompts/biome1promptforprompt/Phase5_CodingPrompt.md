@@ -1,4 +1,4 @@
-# Phase 5 — Incremental Coding Prompt  
+# Phase 5 — Incremental Coding Prompt
 # Spawn + Telegraph + Spawn Portal
 
 Implement **only** the following. Do not add mini boss logic, dungeon room generation, or RL logging. Stop when this phase is complete.

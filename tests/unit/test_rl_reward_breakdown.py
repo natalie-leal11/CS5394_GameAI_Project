@@ -12,7 +12,7 @@ def _snap(**kw):
         total_upgrades_selected=0,
         rl_interact_success_count=0, rl_safe_room_heal_success_count=0,
         rl_safe_room_heal_failed_count=0, rl_interact_failed_e_count=0,
-        rl_reserve_heal_failed_count=0, curriculum_scenario=None, curriculum_goal_dist=float("inf"),
+        rl_reserve_heal_failed_count=0,
     )
     d.update(kw)
     return RewardSnapshot(**d)

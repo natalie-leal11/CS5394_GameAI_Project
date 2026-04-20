@@ -358,10 +358,10 @@ Final Boss attacks follow the deterministic attack cycle defined above.
 
 ### Core timing constants
 
-BOSS_SPAWN_IDLE_DELAY = 1.0 s  
-BOSS_ATTACK_COOLDOWN_PHASE1 = 2.2 s  
-BOSS_ATTACK_COOLDOWN_PHASE2 = 1.8 s  
-BOSS_ATTACK_RECOVERY = 0.8 s  
+BOSS_SPAWN_IDLE_DELAY = 1.0 s
+BOSS_ATTACK_COOLDOWN_PHASE1 = 2.2 s
+BOSS_ATTACK_COOLDOWN_PHASE2 = 1.8 s
+BOSS_ATTACK_RECOVERY = 0.8 s
 
 These values are intentionally slower than a pure pressure boss so the fight remains playable.
 

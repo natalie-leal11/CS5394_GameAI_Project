@@ -1,4 +1,4 @@
-# Phase 6 — Incremental Coding Prompt  
+# Phase 6 — Incremental Coding Prompt
 # Mini Boss
 
 Implement **only** the following. Do not add full dungeon generation, biome transitions, or final boss. Stop when this phase is complete.
