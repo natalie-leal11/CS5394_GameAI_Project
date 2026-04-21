@@ -1,14 +1,16 @@
-Open and execute the repo file
+# Open and execute the repo file
+
 DebugOverlay_MasterPrompt.md
+
 exactly as written. Do not modify the document.
 
-CRITICAL CONTEXT
+## CRITICAL CONTEXT
 
 This prompt pack implements a lightweight AI debugging overlay for the game.
 The overlay must display runtime information from the AI Director system but
 must not modify gameplay behavior.
 
-MANDATORY RULES
+## MANDATORY RULES
 
 1. The overlay must never modify gameplay logic.
 2. The overlay must only read data from existing systems.
@@ -16,7 +18,7 @@ MANDATORY RULES
 4. The overlay must render after all gameplay drawing.
 5. The overlay must be safe if AI systems are temporarily unavailable.
 
-EXECUTION ORDER
+## EXECUTION ORDER
 
 Run the following phases sequentially:
 

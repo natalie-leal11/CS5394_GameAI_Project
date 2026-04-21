@@ -88,9 +88,9 @@ Biome 3 should be added by extending the existing architecture, not by rebuildin
 
 # PHASE ORDER
 
-Phase 1 → Ranged enemy + projectile support  
-Phase 2 → Biome 3 room sequence  
-Phase 3 → Mini boss encounter  
+Phase 1 → Ranged enemy + projectile support
+Phase 2 → Biome 3 room sequence
+Phase 3 → Mini boss encounter
 
 After each phase:
 
@@ -158,13 +158,13 @@ src/entities/ranged.py
 
 enemy_type = "ranged"
 
-base HP = 28  
-base damage = 8  
+base HP = 28
+base damage = 8
 size = 64×64
 
-attack cooldown = 1.2 s  
-projectile speed = 260 px/s  
-projectile lifetime = 3.0 s  
+attack cooldown = 1.2 s
+projectile speed = 260 px/s
+projectile lifetime = 3.0 s
 projectile damage = 8
 
 
@@ -183,7 +183,7 @@ Do NOT redesign enemy architecture.
 
 ## Projectile Assets
 
-assets/entities/projectiles/fireball_16x16.png  
+assets/entities/projectiles/fireball_16x16.png
 assets/entities/projectiles/fireball_trail_16x16.png
 
 
@@ -198,10 +198,10 @@ Projectiles must use:
 
 assets/entities/enemies/biome3/ranged/
 
-idle_1.png → idle_4.png  
-walk_1.png → walk_4.png  
-attack_1.png → attack_4.png  
-hit_1.png → hit_2.png  
+idle_1.png → idle_4.png
+walk_1.png → walk_4.png
+attack_1.png → attack_4.png
+hit_1.png → hit_2.png
 death_1.png → death_6.png
 
 
@@ -234,13 +234,13 @@ BEGINNER_TEST_MODE = True
 
 Room order is fixed:
 
-16 Combat  
-17 Combat  
-18 Ambush  
-19 Combat  
-20 Elite  
-21 Safe  
-22 Combat  
+16 Combat
+17 Combat
+18 Ambush
+19 Combat
+20 Elite
+21 Safe
+22 Combat
 23 Mini Boss
 
 
@@ -261,10 +261,10 @@ Room 23 must **always remain Mini Boss**.
 
 ## Wall Thickness
 
-Combat = 2 tiles  
-Elite = 2 tiles  
-Safe = 2 tiles  
-Mini Boss = 2 tiles  
+Combat = 2 tiles
+Elite = 2 tiles
+Safe = 2 tiles
+Mini Boss = 2 tiles
 Ambush = 4 tiles
 
 
@@ -280,21 +280,21 @@ DOOR_UNLOCK_DELAY_SEC = 0.5
 
 ### Room 16 — Combat
 
-Swarm (0.0s)  
-Flanker (0.4s)  
+Swarm (0.0s)
+Flanker (0.4s)
 Ranged (0.8s)
 
 
 ### Room 17 — Combat
 
-Flanker (0.0s)  
-Ranged (0.4s)  
+Flanker (0.0s)
+Ranged (0.4s)
 Brute (0.8s)
 
 
 ### Room 18 — Ambush
 
-Swarm + Flanker + Ranged  
+Swarm + Flanker + Ranged
 
 Pattern:
 
@@ -302,28 +302,28 @@ Ambush ring
 
 Ambush ring definition:
 
-spawn enemies in a circle around the player  
+spawn enemies in a circle around the player
 radius = 160 px
 
 
 ### Room 19 — Combat
 
-Brute (0.0s)  
-Ranged (0.4s)  
+Brute (0.0s)
+Ranged (0.4s)
 Heavy (0.8s)
 
 
 ### Room 20 — Elite
 
-Brute (elite)  
-Ranged (elite)  
+Brute (elite)
+Ranged (elite)
 Swarm
 
 
 Triangle spawn pattern:
 
-3 spawn points forming a triangle  
-centered on room center  
+3 spawn points forming a triangle
+centered on room center
 side length = 200 px
 
 
@@ -342,9 +342,9 @@ Contains:
 
 ### Room 22 — Combat
 
-Swarm (0.0s)  
-Flanker (0.4s)  
-Ranged (0.8s)  
+Swarm (0.0s)
+Flanker (0.4s)
+Ranged (0.8s)
 Heavy (1.2s)
 
 
@@ -362,21 +362,21 @@ spawn boss at room center.
 
 Combat clear drop
 
-chance = 35%  
-heal = 30% base HP  
+chance = 35%
+heal = 30% base HP
 cap = 100%
 
 
 Safe room heal
 
-heal = 30%  
-overheal cap = 130%  
+heal = 30%
+overheal cap = 130%
 usable once
 
 
 Mini boss reward
 
-heal = 30%  
+heal = 30%
 cap = 100%
 
 
@@ -416,13 +416,13 @@ src/entities/biome3_miniboss.py
 
 assets/entities/enemies/biome3/miniboss/
 
-idle_1 → idle_4  
-move_1 → move_6  
-attack1_1 → attack1_4  
-attack2_1 → attack2_4  
-summon_1 → summon_4  
-phase_change_1 → phase_change_6  
-hit_1 → hit_2  
+idle_1 → idle_4
+move_1 → move_6
+attack1_1 → attack1_4
+attack2_1 → attack2_4
+summon_1 → summon_4
+phase_change_1 → phase_change_6
+hit_1 → hit_2
 death_1 → death_8
 
 
@@ -434,7 +434,7 @@ Spawn time = 2.0 s
 
 ### Phase System
 
-Phase 1 → normal attacks  
+Phase 1 → normal attacks
 
 Phase 2 (50% HP) → summon adds
 
@@ -444,7 +444,7 @@ Phase 2 (50% HP) → summon adds
 
 Adds are fixed:
 
-2 Swarm  
+2 Swarm
 1 Flanker
 
 
@@ -459,7 +459,7 @@ Adds spawn in a ring around boss.
 
 Spawn heal pickup.
 
-heal = 30% base HP  
+heal = 30% base HP
 cap = 100%
 
 
@@ -477,23 +477,23 @@ Player chooses **one**.
 
 Upgrade pool:
 
-Health Upgrade  
-+20% max HP  
+Health Upgrade
++20% max HP
 Icon: assets/ui/hud/icon_health_24x24.png
 
 
-Speed Boost  
-+10% movement speed  
+Speed Boost
++10% movement speed
 Icon: assets/ui/hud/icon_speed_24x24.png
 
 
-Attack Boost  
-+12% attack damage  
+Attack Boost
++12% attack damage
 Icon: assets/ui/hud/icon_attack_24x24.png
 
 
-Defense Boost  
--12% incoming damage  
+Defense Boost
+-12% incoming damage
 Icon: assets/ui/hud/icon_defence_24x24.png
 
 
@@ -504,22 +504,22 @@ Upgrade selection must be deterministic using the seeded RNG.
 
 # BIOME 3 ENEMY REFERENCE
 
-Swarm  
-Flanker  
-Brute  
-Heavy  
-Ranged  
+Swarm
+Flanker
+Brute
+Heavy
+Ranged
 Mini Boss
 
 
 
 Enemy sizes:
 
-Swarm → 60×60  
-Flanker → 48×48  
-Brute → 80×80  
-Heavy → 88×88  
-Ranged → 64×64  
+Swarm → 60×60
+Flanker → 48×48
+Brute → 80×80
+Heavy → 88×88
+Ranged → 64×64
 Mini Boss → 96×96
 
 

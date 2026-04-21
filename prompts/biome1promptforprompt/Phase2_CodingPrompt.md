@@ -1,4 +1,4 @@
-# Phase 2 — Incremental Coding Prompt  
+# Phase 2 — Incremental Coding Prompt
 # Player System (animations, movement, dash, attacks, parry, hit/death)
 
 Implement **only** the following. Do not add enemies, combat damage resolution, dungeon, spawn system, or any later-phase features. Stop when this phase is complete.

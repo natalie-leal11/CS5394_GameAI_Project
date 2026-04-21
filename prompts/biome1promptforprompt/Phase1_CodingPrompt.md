@@ -1,4 +1,4 @@
-# Phase 1 — Incremental Coding Prompt  
+# Phase 1 — Incremental Coding Prompt
 # Core Engine + Asset Loader + StartScene + Scene Manager + Camera Baseline
 
 Implement **only** the following. Do not add player movement, enemies, combat, dungeon, or any later-phase features. Stop when this phase is complete.

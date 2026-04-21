@@ -1,0 +1,579 @@
+@startuml Core_Class_Diagram_SRS_Figure
+title CS5394 Adaptive Dungeon — Core Class Diagram (Implementation-Aligned, SRS Figure Style)
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+skinparam roundcorner 6
+skinparam packageStyle rectangle
+left to right direction
+
+legend top left
+  **Visibility (Python → UML)**
+  | Symbol | Meaning |
+  | **+** | Public API (no leading underscore) |
+  | **-** | Private / implementation (_attr, __attr) |
+  | **#** | Subclass hooks / “protected” by convention |
+  | «property» | Python @property accessor |
+  | «dataclass» | @dataclass DTO / immutable snapshot |
+endlegend
+
+
+' =========================
+' Scene runtime
+' =========================
+package "Scene runtime" as pkg_scene {
+  class SceneManager {
+    - _current: BaseScene
+    - _game_scene: GameScene
+    - _start_scene: StartScene
+    - _controls_scene: ControlsScene
+    - _settings_scene: SettingsScene
+    - difficulty_params: DifficultyParams
+    --
+    + init(): void
+    + switch_to_start(): void
+    + switch_to_game(run_seed_override: int, rl_curriculum_scenario: str): void
+    + switch_to_controls(): void
+    + switch_to_settings(): void
+    + on_app_quit(): void
+    + update(dt: float): void
+    + draw(screen, camera_offset): void
+    + handle_event(event): bool
+    --
+    «property» + current: BaseScene
+  }
+
+  class BaseScene {
+    + scene_manager: SceneManager
+    --
+    + update(dt: float): void
+    + draw(screen, camera_offset): void
+    + handle_event(event): bool
+  }
+
+  class GameScene {
+    - _room_controller: RoomController
+    - _player: Player
+    - _enemies: list
+    - _projectiles: list
+    - _spawn_system: SpawnSystem
+    - _metrics: MetricsTracker
+    - _debug_overlay: DebugOverlay
+    + player_model: PlayerModel
+    + ai_director: AIDirector
+    + ai_logger: AILogger
+    - _rl_controlled: bool
+    - _rl_skip_draw: bool
+    --
+    + update(dt: float): void
+    + draw(screen, camera_offset): void
+    + handle_event(event): bool
+    + reset(for_new_run: bool, ...): void
+  }
+
+  class StartScene
+  class ControlsScene
+  class SettingsScene
+
+  BaseScene <|-- GameScene
+  BaseScene <|-- StartScene
+  BaseScene <|-- ControlsScene
+  BaseScene <|-- SettingsScene
+
+  SceneManager --> DifficultyParams : difficulty_params
+}
+
+
+' =========================
+' Dungeon / room flow
+' =========================
+package "Dungeon & room flow" as pkg_dungeon {
+  class RoomController {
+    - _seed: int
+    - _current_room: Room
+    - _current_room_index: int
+    - _door_system: DoorSystem
+    - _hazard_system: HazardSystem
+    --
+    + load_room(campaign_index: int): Room
+    --
+    «property» + current_room: Room
+    «property» + current_room_index: int
+    «property» + door_system: DoorSystem
+    «property» + hazard_system: HazardSystem
+  }
+
+  class Room << (D,orchid) dataclass >> {
+    + room_index: int
+    + biome_index: int
+    + room_type: RoomType
+    + hazard_percentage: float
+    + width: int
+    + height: int
+    + tile_grid: list
+    + spawn_tile: tuple
+    --
+    «property» + pixel_width: int
+    «property» + pixel_height: int
+    + world_pos_for_tile(tx, ty): tuple
+    + tile_at_world(wx, wy): tuple
+    + get_tile_type(tx, ty): str
+    + wall_border(): int
+  }
+
+  enum RoomType {
+    START
+    CORRIDOR
+    COMBAT
+    AMBUSH
+    SAFE
+    ELITE
+    MINI_BOSS
+    FINAL_BOSS
+  }
+
+  class DoorSystem {
+    - _doors: list
+    --
+    + set_doors(doors): void
+    + open_all(): void
+    + close_all(): void
+    + start_unlock_timer(): void
+    + update(dt: float): void
+    + get_door_at_world(wx, wy, margin): Door
+    --
+    «property» + doors: list
+    + any_door_open(): bool
+  }
+
+  class Door {
+    + tile_x: int
+    + tile_y: int
+    + state: DoorState
+    + is_safe_door: bool
+    + target_room_index: int
+    --
+    «property» + world_x: float
+    «property» + world_y: float
+    + can_pass(): bool
+  }
+
+  enum DoorState {
+    OPEN
+    CLOSED
+    LOCKED
+  }
+
+  class HazardSystem {
+    - _room: Room
+    - _lava_anim_time: float
+    --
+    + set_room(room): void
+    + update(dt: float): void
+    + is_lava_tile(tx, ty): bool
+    + is_slow_tile(tx, ty): bool
+    + damage_per_second_for_lava(): float
+    + slow_speed_factor(): float
+    + tile_at_world(wx, wy): tuple
+    + lava_frame_index(): int
+  }
+
+  Room --> RoomType
+  Door --> DoorState
+  RoomController o-- "1" Room : current
+  RoomController o-- DoorSystem
+  RoomController o-- HazardSystem
+  DoorSystem o-- "*" Door
+}
+
+
+' =========================
+' AI stack
+' =========================
+package "AI runtime & metrics" as pkg_ai {
+  class AIDirector {
+    - _params: DifficultyParams
+    + difficulty_modifier: float
+    + enemy_adjustment: int
+    + reinforcement_chance: float
+    + composition_bias: str
+    + last_player_state_name: str
+    + reinforcement_chance_b2: float
+    + composition_bias_b3: str
+    + reinforcement_chance_b3: float
+    + composition_bias_b4: str
+    + boss_pressure: str
+    --
+    + update_room_context(room_idx, biome_index): void
+    + update(player_state: PlayerStateClass): void
+    + capture_encounter_snapshot(): EncounterDirectorSnapshot
+    + get_debug_state(): dict
+  }
+
+  class EncounterDirectorSnapshot << (D,orchid) dataclass >> {
+    + difficulty_modifier: float
+    + enemy_adjustment: int
+    + reinforcement_chance: float
+    + composition_bias: str
+    + last_player_state_name: str
+    + pressure_level: str
+    + composition_bias_b2: str
+    + hazard_tune_factor_b2: float
+    + composition_bias_b3: str
+    + ranged_bias_b3: str
+    + reinforcement_chance_b3: float
+    + hazard_tune_factor_b3: float
+    + composition_bias_b4: str
+    + boss_pressure: str
+    + pacing_bias: str
+    + reinforcement_chance_b4: float
+    + hazard_tune_factor_b4: float
+    --
+    {static} + neutral_default(): EncounterDirectorSnapshot
+  }
+
+  class PlayerModel {
+    - _dp: DifficultyParams
+    - _tuning: PlayerModelTuningParams
+    + player_state: PlayerStateClass
+    --
+    + classify(summary: PlayerModelSummaryInput): PlayerClassificationResult
+  }
+
+  enum PlayerStateClass {
+    STRUGGLING
+    STABLE
+    DOMINATING
+  }
+
+  class PlayerModelSummaryInput << (D,orchid) dataclass >> {
+    + hp_percent_current: float
+    + hp_lost_in_room: float
+    + rooms_cleared: int
+    + total_deaths: int
+    + last_3_rooms_hp_loss: tuple
+    + last_3_rooms_result: tuple
+    + life_index: int
+  }
+
+  class PlayerClassificationResult << (D,orchid) dataclass >> {
+    + player_state: PlayerStateClass
+    + reasons: tuple
+    + struggle_score: float
+    + dominate_score: float
+  }
+
+  class MetricsTracker {
+    - _dp: DifficultyParams
+    - _room: RoomMetrics
+    + run: RunMetrics
+    + player_idle: bool
+    + in_hazard: bool
+    + near_enemy: bool
+    --
+    + start_run(seed: int): void
+    + start_room(room_index, biome_index, hp_percent, room_type): void
+    + end_room(hp_percent): void
+    + update(dt): void
+  }
+
+  enum RoomResult {
+    clean_clear
+    damaged_clear
+    near_death
+    death
+  }
+
+  class RoomMetrics << (D,orchid) dataclass >> {
+    + current_room_index: int
+    + room_clear_time: float
+    + kill_count_room: int
+    + room_result: RoomResult
+    + damage_taken_in_room: float
+  }
+
+  class RunMetrics << (D,orchid) dataclass >> {
+    + run_seed: int
+    + rooms_cleared: int
+    + total_deaths: int
+    + room_history: list
+  }
+
+  class DifficultyParams << (D,orchid) dataclass >> {
+    + player_model: PlayerModelParams
+    + director: DirectorParams
+    + rewards: RewardParams
+    + metrics: MetricsParams
+    + combat: CombatParams
+  }
+
+  class AILogger {
+    + logs: list
+    + run_seed: int
+    + run_id: str
+    + file_path: str
+    - _verbose: bool
+    --
+    + log_room(data_dict): void
+    + log_session_end(data_dict): void
+    + log_event(event_name, data_dict): void
+    + clear(): void
+    + export_to_file(filename): void
+    --
+    {static} + compare_runs(logs_a, logs_b): bool
+  }
+
+  class DebugOverlay {
+    + game_scene: GameScene
+    + enabled: bool
+    - _font: Font
+    --
+    + toggle(): void
+    + draw(screen): void
+  }
+
+  PlayerModel --> PlayerStateClass
+  PlayerModel ..> PlayerModelSummaryInput : reads
+  PlayerModel ..> PlayerClassificationResult : returns
+  MetricsTracker *-- RunMetrics
+  MetricsTracker *-- RoomMetrics
+  RoomMetrics --> RoomResult
+  AIDirector ..> EncounterDirectorSnapshot : builds
+  AIDirector --> DifficultyParams
+  PlayerModel --> DifficultyParams
+  MetricsTracker --> DifficultyParams
+}
+
+
+' =========================
+' Gameplay entities
+' =========================
+package "Gameplay entities" as pkg_entities {
+  class Player {
+    + world_pos: tuple
+    + state: str
+    + hp: float
+    + max_hp: float
+    --
+    + update(dt, keys, room_rect): void
+    + draw(screen, camera_offset): void
+    + get_movement_hitbox(): Rect
+  }
+
+  class EnemyBase {
+    + enemy_type: str
+    + world_pos: tuple
+    + state: str
+    + hp: float
+    + max_hp: float
+    + damage: float
+    + inactive: bool
+    --
+    + update(dt, player, room_rect): void
+    + draw(screen, camera_offset): void
+  }
+
+  class Swarm
+  class Flanker
+  class Brute
+  class Heavy
+  class Ranged
+
+  EnemyBase <|-- Swarm
+  EnemyBase <|-- Flanker
+  EnemyBase <|-- Brute
+  EnemyBase <|-- Heavy
+  EnemyBase <|-- Ranged
+
+  Ranged ..> Projectile : fires
+
+  class MiniBoss {
+    + enemy_type: str
+    + world_pos: tuple
+    + hp: float
+    + state: str
+  }
+  class MiniBoss2 {
+    + enemy_type: str
+    + world_pos: tuple
+    + hp: float
+  }
+  class Biome3MiniBoss {
+    + enemy_type: str
+    + world_pos: tuple
+    + hp: float
+  }
+  class FinalBoss {
+    + enemy_type: str
+    + world_pos: tuple
+    + hp: float
+  }
+  note bottom of MiniBoss
+    **Not** subclasses of EnemyBase (standalone boss classes;
+    MiniBoss2 / Biome3MiniBoss / FinalBoss same pattern).
+  end note
+
+  class TrainingDummy {
+    + world_pos: tuple
+    + hp: float
+    + is_training_dummy: bool
+    + enemy_type: str
+    --
+    + update(dt, player, room_rect): void
+    + draw(screen, camera_offset): void
+    + get_hitbox_rect(): Rect
+  }
+  note right of TrainingDummy
+    **Not** a subclass of EnemyBase.
+    Practice target in room 0; GameScene may hold
+    dummies alongside EnemyBase lists.
+  end note
+
+  class Projectile {
+    + world_pos: tuple
+    + inactive: bool
+    --
+    + update(dt, room_rect): void
+    + draw(screen, camera_offset): void
+  }
+}
+
+
+' =========================
+' Systems
+' =========================
+package "Systems" as pkg_systems {
+  class SpawnSystem {
+    - _vfx: VfxManager
+    - _time: float
+    - _slots: list
+    --
+    + add_spawn(...): void
+    + update(...): void
+    + all_spawns_completed(): bool
+  }
+
+  class SpawnSlot << (D,orchid) dataclass >> {
+    + tile_x: int
+    + tile_y: int
+    + enemy_cls: Type
+    + elite: bool
+    + start_time: float
+    + completed: bool
+  }
+
+  class VfxManager {
+    + emit(...): void
+    + update(dt): void
+    + draw(screen, camera_offset): void
+  }
+
+  class DamageEvent << (D,orchid) dataclass >> {
+    + amount: float
+    + source: str
+  }
+
+  SpawnSystem o-- SpawnSlot
+  SpawnSlot ..> EnemyBase : enemy_cls (often)
+}
+
+
+' =========================
+' RL boundary
+' =========================
+package "RL runtime (Gymnasium)" as pkg_rl {
+  class DungeonEnv {
+    - _scene_manager: SceneManager
+    - _game_scene: GameScene
+    - _reward_state: RewardState
+    - _prev_reward_snapshot: RewardSnapshot
+    + render_mode: str
+    --
+    + reset(seed, options): tuple
+    + step(action): tuple
+    + render(): ndarray | None
+    + close(): void
+  }
+
+  class RewardState << (D,orchid) dataclass >> {
+    + paid_victory: bool
+    + paid_defeat: bool
+    + stagnation_steps: int
+    --
+    + reset(): void
+  }
+
+  class RewardSnapshot << (D,orchid) dataclass >> {
+    + hp: float
+    + max_hp: float
+    + lives: int
+    + room_index: int
+    + victory: bool
+    + kill_total: int
+    + rooms_cleared: int
+    + door_goal_dist: float
+    + combat_enemy_boss: dict
+  }
+  note bottom of RewardSnapshot
+    Additional RL / hazard / heal counter fields in **rl/reward.py**.
+  end note
+
+  class TimeoutPenaltyWrapper {
+    --
+    + step(action): tuple
+  }
+  note bottom of TimeoutPenaltyWrapper
+    Extends **gymnasium.Wrapper**;
+    wraps env for training (timeout penalty).
+  end note
+
+  DungeonEnv *-- RewardState
+  DungeonEnv ..> RewardSnapshot : build_reward_snapshot / compute_step_reward
+  TimeoutPenaltyWrapper ..> DungeonEnv : wraps
+}
+
+
+' =========================
+' Cross-package wiring
+' =========================
+SceneManager o-- GameScene
+SceneManager o-- StartScene
+SceneManager o-- ControlsScene
+SceneManager o-- SettingsScene
+
+GameScene --> RoomController
+GameScene --> Player
+GameScene --> SpawnSystem
+GameScene --> VfxManager
+GameScene --> MetricsTracker
+GameScene --> PlayerModel
+GameScene --> AIDirector
+GameScene --> AILogger
+GameScene --> DebugOverlay
+GameScene ..> DamageEvent : systems.combat\\nreturns events
+GameScene --> EnemyBase : _enemies*
+GameScene --> Projectile : _projectiles*
+GameScene .. TrainingDummy : optional
+GameScene .. MiniBoss : optional
+GameScene .. MiniBoss2 : optional
+GameScene .. Biome3MiniBoss : optional
+GameScene .. FinalBoss : optional
+
+FinalBoss ..> Projectile : may spawn / enqueue
+
+PlayerModel ..> MetricsTracker : summary from
+AIDirector ..> PlayerStateClass : reads label
+
+DungeonEnv --> SceneManager : creates / holds
+DungeonEnv --> GameScene : _game_scene (RL path)
+
+note as N_RNG
+  **Seed / RNG** is **not** a class:
+  module **game.rng** (initialize_run_seed, derive_seed, …)
+  and function **generate_room** in **dungeon.room**.
+end note
+RoomController .. N_RNG
+GameScene .. N_RNG
+
+@enduml

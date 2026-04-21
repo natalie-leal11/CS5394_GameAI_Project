@@ -1,4 +1,4 @@
-# Phase 8 — Incremental Coding Prompt  
+# Phase 8 — Incremental Coding Prompt
 # RL Logging Hooks
 
 Implement **only** the following. Do not add RL training or runtime policy updates. Stop when this phase is complete.

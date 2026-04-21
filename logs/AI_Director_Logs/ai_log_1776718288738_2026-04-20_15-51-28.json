@@ -1,0 +1,35 @@
+[
+  {
+    "event": "run_header",
+    "run_id": "8848922d-9704-4548-833a-a0ba1611b876",
+    "seed": 1776718288738
+  },
+  {
+    "run_id": "8848922d-9704-4548-833a-a0ba1611b876",
+    "run_seed": 1776718288738,
+    "room_index": 4,
+    "biome_index": 1,
+    "room_type": "SAFE",
+    "player_state": "DOMINATING",
+    "heal_source": "safe_room",
+    "hp_percent_before": 50.0,
+    "hp_percent_after": 80.0,
+    "heal_amount_applied": 60.0,
+    "consumed": true,
+    "event": "heal_applied"
+  },
+  {
+    "run_id": "8848922d-9704-4548-833a-a0ba1611b876",
+    "run_seed": 1776718288738,
+    "room_index": 12,
+    "biome_index": 2,
+    "room_type": "SAFE",
+    "player_state": "DOMINATING",
+    "heal_source": "safe_room",
+    "hp_percent_before": 50.0,
+    "hp_percent_after": 78.2,
+    "heal_amount_applied": 56.4,
+    "consumed": true,
+    "event": "heal_applied"
+  }
+]

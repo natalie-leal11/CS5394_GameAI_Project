@@ -16,15 +16,15 @@ The pack defines:
 
 ## Phase Map
 
-1. `Phase1_AI_Director_Overview.md`  
-2. `Phase2_Metrics_and_PlayerModel.md`  
-3. `Phase3_Director_Core_Decision_Logic.md`  
-4. `Phase4_Biome1_Director_Behavior.md`  
-5. `Phase5_Biome2_Director_Behavior.md`  
-6. `Phase6_Biome3_Director_Behavior.md`  
-7. `Phase7_Biome4_Director_Behavior.md`  
-8. `Phase8_Encounter_and_SafeRoom_Adjustments.md`  
-9. `Phase9_Logging_and_Determinism.md`  
+1. `Phase1_AI_Director_Overview.md`
+2. `Phase2_Metrics_and_PlayerModel.md`
+3. `Phase3_Director_Core_Decision_Logic.md`
+4. `Phase4_Biome1_Director_Behavior.md`
+5. `Phase5_Biome2_Director_Behavior.md`
+6. `Phase6_Biome3_Director_Behavior.md`
+7. `Phase7_Biome4_Director_Behavior.md`
+8. `Phase8_Encounter_and_SafeRoom_Adjustments.md`
+9. `Phase9_Logging_and_Determinism.md`
 10. `AI_Director_Summary.md`
 
 ---

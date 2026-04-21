@@ -1,32 +1,42 @@
-PHASE 2 — Integrate Overlay Into GameScene
+# PHASE 2 — Integrate Overlay Into GameScene
 
-Modify:
+## Modify
 
+```
 src/game/scenes/game_scene.py
+```
 
-IMPORT
+## IMPORT
 
+```
 from game.debug.debug_overlay import DebugOverlay
+```
 
-INITIALIZATION
+## INITIALIZATION
 
 Inside GameScene.__init__ add:
 
+```
 self._debug_overlay = DebugOverlay(self)
+```
 
-INPUT HANDLING
+## INPUT HANDLING
 
 Inside handle_event():
 
+```
 if event.type == pygame.KEYDOWN and event.key == pygame.K_F3:
     self._debug_overlay.toggle()
+```
 
-DRAWING
+## DRAWING
 
 At the end of GameScene.draw():
 
+```
 self._debug_overlay.draw(screen)
+```
 
 Ensure this occurs AFTER all other drawing calls.
 
-STOP AFTER IMPLEMENTATION
+## STOP AFTER IMPLEMENTATION

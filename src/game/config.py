@@ -217,11 +217,11 @@ PLAYER_SHORT_ATTACK_WINDUP_SEC = 0.12
 PLAYER_SHORT_ATTACK_ACTIVE_SEC = 0.10
 PLAYER_SHORT_ATTACK_RECOVERY_SEC = 0.18
 # Enforced by Player.short_attack_cooldown_timer (min time between short-attack starts; independent of anim length).
-PLAYER_SHORT_ATTACK_COOLDOWN_SEC = 0.5
+PLAYER_SHORT_ATTACK_COOLDOWN_SEC = 0.2
 
 PLAYER_LONG_ATTACK_WINDUP_SEC = 0.20
 # Enforced by Player.long_attack_cooldown_timer (independent of attack_long animation length / FPS).
-PLAYER_LONG_ATTACK_COOLDOWN_SEC = 1.2
+PLAYER_LONG_ATTACK_COOLDOWN_SEC = 0.5
 
 # Player melee: proximity radii from player center (px). Facing does not affect hits.
 PLAYER_SHORT_ATTACK_RANGE_PX = 48  # 1.5 tiles — smaller radius
