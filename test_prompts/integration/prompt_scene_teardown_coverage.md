@@ -1,0 +1,71 @@
+## Prompt Title: Scene teardown — integration coverage (replaces skipped tests)
+
+### CRITICAL REQUIREMENTS ###
+- **MANDATORY:** ONLY write test code (pytest).
+- **CRITICAL:** DO NOT modify any code under `src/`.
+- **CRITICAL:** DO NOT overwrite, rename, or delete existing test files.
+- Tests must be **additive only** — if the target file exists, extend it; otherwise create it.
+- **REPLACE SKIPPED TESTS** listed below with real implementations (remove the `pytest.skip(...)` line and add a working body).
+- Use fixed seeds for anything RNG-sensitive (`random.seed(0)`, `numpy.random.seed(0)`).
+- Mock heavy systems (pyglet/pygame window, RL training, full `GameScene`) where applicable.
+- Keep every test fast (< 2 s). No long training loops, no real rendering.
+
+---
+
+### OBJECTIVE ###
+Real teardown tests for Start/Game/Settings/Controls scenes: resource release, event-handler unregister, no dangling timers.
+
+---
+
+### CONTEXT — EXISTING GAPS ###
+Multiple `pytest.skip('Scene teardown')` and `'Scene'` skips exist.
+
+---
+
+### FILES TO CREATE OR EXTEND ###
+- `tests/integration/test_scene_teardown.py`
+
+If the file already exists, **append** new test functions; **do not** remove
+or rewrite existing passing tests. When replacing a skipped stub, keep the
+function name and only swap the body.
+
+---
+
+### TEST CASES ###
+- `test_game_scene_teardown_clears_entities`
+- `test_start_scene_teardown_unregisters_input`
+- `test_settings_scene_teardown_persists_or_discards`
+- `test_controls_scene_teardown_clears_rebind_state`
+
+---
+
+### IMPLEMENTATION NOTES ###
+- Use minimal fixtures; avoid full `GameScene` construction unless required.
+- Mock pyglet/pygame surfaces and RL dependencies.
+- Seed all RNG (`random.seed(0)`, `numpy.random.seed(0)`).
+
+---
+
+### CONCURRENCY (IF APPLICABLE) ###
+- N/A
+
+---
+
+### DEADLOCK SAFETY (IF APPLICABLE) ###
+- N/A
+
+---
+
+### ACCEPTANCE ###
+- All listed tests pass locally via `pytest tests/integration`.
+- The full suite (`pytest tests`) still passes — no regressions.
+- Zero skipped tests among the ones listed above (unless genuinely unsupported on CI, in which case skip only with a clear reason string).
+- No flaky behavior across 3 consecutive runs.
+- No edits under `src/`.
+
+---
+
+### CRITICAL END ###
+ONLY create or extend the test file listed above.
+DO NOT modify production code.
+DO NOT overwrite existing tests.

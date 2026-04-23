@@ -1,0 +1,5 @@
+{"event": "run_start", "run_time_sec": 0.0, "seed": 42}
+{"event": "room_enter", "run_time_sec": 1.5, "seed": 42, "room_index": 0, "room_type": "combat", "lava_pct": 2.5, "slow_pct": 10.0}
+{"event": "enemy_spawn", "run_time_sec": 2.0, "seed": 42, "room_index": 0, "enemy_type": "melee_grunt", "instance_id": 0}
+{"event": "damage_dealt", "run_time_sec": 3.0, "seed": 42, "amount": 10, "source": "player_short"}
+{"event": "room_clear", "run_time_sec": 15.0, "seed": 42, "room_index": 0, "clear_time_sec": 13.5}

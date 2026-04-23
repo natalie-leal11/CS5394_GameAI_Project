@@ -1,0 +1,42 @@
+@startuml
+title System Context Diagram — Adaptive Dungeon Design with an AI Director
+
+skinparam shadowing false
+skinparam roundcorner 15
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam ArrowThickness 1.2
+skinparam DefaultFontSize 14
+
+left to right direction
+
+actor Player
+
+rectangle "Adaptive Dungeon Game System" {
+
+  component "Game Client\n(UI + Game Loop)" as Client
+  component "Dungeon Generator\n(Seeded)" as Generator
+  component "AI Director\n(Deterministic)" as Director
+  component "RNG Module\n(Centralized)" as RNG
+  component "Logging Subsystem" as Logging
+}
+
+file "difficulty_policy.json\n(read-only at startup)" as Config
+database "Local Filesystem\nlogs/runs/ + logs/summary.json" as FS
+
+' Player interaction
+Player --> Client : Input controls
+Client --> Player : Visual feedback
+
+' High-level internal relationships
+Client --> Generator : New run request
+Generator --> RNG : Seeded randomness
+Client --> Director : Performance metrics
+Director --> Client : Encounter decisions
+Client --> Logging : Write run data
+
+' External systems
+Config --> Director : Load parameters
+Logging --> FS : Persist logs
+
+@enduml

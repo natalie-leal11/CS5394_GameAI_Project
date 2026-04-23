@@ -1,0 +1,362 @@
+@startuml
+title UML Class Diagram — Core Classes (Fixed)
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+left to right direction
+
+' =========================
+' Core Orchestration
+' =========================
+class GameController {
+  - currentRunId: string
+  - seed: int
+  - roomIndex: int
+  + startNewRun(): void
+  + update(dt): void
+  + endRun(result): void
+}
+
+class RoomFlowManager {
+  - currentRoom: Room
+  + enterRoom(roomId): void
+  + completeRoom(): void
+  + advance(): void
+}
+
+GameController --> RoomFlowManager
+
+' =========================
+' Determinism + Seed
+' =========================
+class SeedManager {
+  - seed: int
+  + newSeed(): int
+  + getSeed(): int
+}
+
+class RNGModule {
+  - seed: int
+  + setSeed(seed): void
+  + randInt(min, max): int
+  + choice(list): any
+}
+
+SeedManager --> RNGModule
+
+note bottom of RNGModule
+Centralized RNG only.
+No direct random imports allowed.
+Same seed + same inputs => identical run.
+end note
+
+' =========================
+' Dungeon Generation
+' =========================
+class DungeonGenerator {
+  - rooms: List<Room>
+  + generate(seed): List<Room>
+  + validateStructure(): bool
+}
+
+class Room {
+  + id: int
+  + biomeIndex: int
+  + type: RoomType
+  + size: RoomSize
+  + layout: TileMap
+  + isFlexibleEncounterSlot: bool
+}
+
+enum RoomType {
+  START
+  CORRIDOR
+  COMBAT
+  AMBUSH
+  SAFE
+  ELITE
+  MINI_BOSS
+  FINAL_BOSS
+}
+
+class HazardCaps {
+  + lavaPctMin: float
+  + lavaPctMax: float
+  + slowPctMin: float
+  + slowPctMax: float
+  + wallsPctMin: float
+  + wallsPctMax: float
+  + minSafeAreaPct: float
+}
+
+class HazardPlacer {
+  - caps: HazardCaps
+  + placeHazards(room, caps): void
+}
+
+class HazardValidator {
+  + validate(room): bool
+  + ensureConnectivity(room): bool
+  + ensureSafeZones(room): bool
+}
+
+DungeonGenerator --> RNGModule
+DungeonGenerator --> Room
+DungeonGenerator --> HazardPlacer
+DungeonGenerator --> HazardValidator
+HazardPlacer --> RNGModule
+HazardPlacer --> HazardCaps
+
+RoomFlowManager --> DungeonGenerator
+
+' =========================
+' AI Director
+' =========================
+class AIDirector {
+  - params: DifficultyParams
+  + classify(metrics): PlayerState
+  + decideEncounter(room, state): EncounterPlan
+}
+
+class MetricsTracker {
+  - hpTrend
+  - deaths
+  - clearTimes
+  - damageTaken
+  + recordRoomResult(result): void
+  + getMetrics(): Metrics
+}
+
+enum PlayerState {
+  STRUGGLING
+  STABLE
+  DOMINATING
+}
+
+class DifficultyParamsLoader {
+  + load(): DifficultyParams
+}
+
+class DifficultyParams {
+  + strugglingThresholds
+  + stableThresholds
+  + dominatingThresholds
+  + enemyCountMultipliers
+  + ambushBias
+  + eliteBias
+  + reinforcementBias
+  + healingBiasBounds
+  + upgradeBiasRules
+}
+
+AIDirector --> MetricsTracker
+AIDirector --> DifficultyParamsLoader
+DifficultyParamsLoader --> DifficultyParams
+
+note right of DifficultyParamsLoader
+RL trains offline only.
+Runtime loads fixed parameters (read-only).
+No online learning.
+end note
+
+RoomFlowManager --> AIDirector
+RoomFlowManager --> MetricsTracker
+
+' =========================
+' Encounter Planning + Caps
+' =========================
+class EncounterManager {
+  - caps: CombatCaps
+  + applyPlan(room, plan): void
+  + spawnEnemies(plan): void
+  + spawnReinforcements(plan): void
+}
+
+class EncounterPlan {
+  + chosenEncounterType: RoomType
+  + enemyCount: int
+  + eliteCount: int
+  + spawnTiming: SpawnTiming
+  + reinforcementWaves: int
+  + healingBias: float
+  + upgradeBias: UpgradeBias
+}
+
+enum SpawnTiming {
+  DELAYED
+  NORMAL
+  INSTANT
+}
+
+class CombatCaps {
+  + maxActiveEnemiesPerRoom: int = 10
+  + maxReinforcementWavesPerRoom: int = 2
+  + maxActiveProjectilesPlayer: int = 3
+  + maxActiveProjectilesEnemy: int = 6
+}
+
+EncounterManager --> CombatCaps
+EncounterManager --> Room
+EncounterManager --> EncounterPlan
+RoomFlowManager --> EncounterManager
+
+' =========================
+' Player + Combat Resolver
+' =========================
+class Player {
+  - hp: int
+  - moveSpeed: float
+  - dashCooldown: float
+  + move(input): void
+  + dash(): void
+  + shortAttack(): void
+  + longAttack(): void
+  + block(): void
+  + parry(): void
+}
+
+class CombatResolver {
+  - caps: CombatCaps
+  + resolveHit(attacker, defender): void
+  + applyDamageOrder(): void
+  + enforceProjectileCaps(): void
+  + enforceEnemyCaps(): void
+}
+
+CombatResolver --> CombatCaps
+CombatResolver --> Player
+
+note right of CombatResolver
+Damage Resolution Order (MANDATORY):
+1) hit confirm
+2) block/parry
+3) modifiers
+4) HP change
+5) death check
+end note
+
+RoomFlowManager --> CombatResolver
+
+' =========================
+' Enemies + Elite Modeling
+' =========================
+abstract class Enemy {
+  - hp: int
+  - speed: float
+  - damage: int
+  - isElite: bool
+  + update(dt): void
+  + attack(player): void
+  + applyEliteBonus(): void
+}
+
+class SwarmEnemy
+class FlankerEnemy
+class BruteEnemy
+class HeavyEnemy
+class RangedSuppressorEnemy
+
+Enemy <|-- SwarmEnemy
+Enemy <|-- FlankerEnemy
+Enemy <|-- BruteEnemy
+Enemy <|-- HeavyEnemy
+Enemy <|-- RangedSuppressorEnemy
+
+class EliteRules {
+  + hpBonusPct: float = 0.40
+  + damageBonusPct: float = 0.20
+  + maxElitesPerRun: int = 3
+  + eliteSummonOncePerEncounter: bool = true
+}
+
+Enemy --> EliteRules : uses
+
+EncounterManager --> Enemy
+
+note right of EliteRules
+Elite modifiers:
++40% HP, +20% damage
+Max elites per run = 3
+Elite may summon once per encounter
+end note
+
+' =========================
+' Bosses + Phase Details
+' =========================
+class Boss {
+  - phase: int
+  + transitionPhase(): void
+}
+
+class MiniBoss {
+  + summonAtHalfHP(): void
+}
+
+class FinalBoss {
+  - phaseTransitionHP: float = 0.50
+  - invulnSeconds: float = 2.0
+  - hasPhase2Summoned: bool
+  + triggerPhase2(): void
+  + summonOnceAtPhase2Start(): void
+}
+
+Boss <|-- MiniBoss
+Boss <|-- FinalBoss
+
+EncounterManager --> Boss
+
+note right of FinalBoss
+Two phases:
+Phase 1: 100% -> 50%
+Transition: 2s invulnerability
+Phase 2: 50% -> 0%
+One summon event at Phase 2 start
+end note
+
+' =========================
+' Logging (matches spec fields)
+' =========================
+class RunLogger {
+  + logRoom(entry: RoomLogEntry): void
+  + logSummary(summary: RunSummary): void
+}
+
+class RoomLogEntry {
+  + run_id: string
+  + seed: int
+  + biome_index: int
+  + room_index: int
+  + room_type: RoomType
+  + chosen_encounter_type: RoomType
+  + enemy_count: int
+  + elite_count: int
+  + player_hp_start: int
+  + player_hp_end: int
+  + damage_taken: int
+  + clear_time: float
+  + director_state: PlayerState
+}
+
+class RunSummary {
+  + win_or_loss: string
+  + rooms_cleared: int
+  + total_damage_taken: int
+  + total_run_time: float
+}
+
+class LogWriter {
+  + writeJSON(path, data): void
+  + writeCSV(path, data): void
+}
+
+RunLogger --> RoomLogEntry
+RunLogger --> RunSummary
+RunLogger --> LogWriter
+RoomFlowManager --> RunLogger
+
+note right of RunLogger
+Logging is write-only during runtime.
+No reading logs while playing.
+end note
+
+@enduml
