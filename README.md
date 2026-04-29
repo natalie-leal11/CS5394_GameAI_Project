@@ -6,7 +6,8 @@ A top-down 2D tile-based dungeon game built with Python and Pygame, featuring pr
 
 ## Demo Files
 
-- Class Diagram is under `design_docs/class_diagram_verification/`
+- Class Diagram is under `design_docs/class_diagrams/`
+- Statechart Diagrams is under `design_docs/statechart_diagrams/`. Under this folder there is a README.md explaining the statechart.md files.
 - All prompts are under `prompts/` separated into the appropriate subfolders
 - Test prompts are under `test_prompts/`. While the executed tests are under `tests/`
 - Powerpoint and demo videos are under `design_docs/demo_videos_ppt/`. 
