@@ -4,6 +4,17 @@ A top-down 2D tile-based dungeon game built with Python and Pygame, featuring pr
 
 ---
 
+## Demo Files
+
+- Class Diagram is under `design_docs/class_diagram_verification/`
+- All prompts are under `prompts/` separated into the appropriate subfolders
+- Test prompts are under `test_prompts/`. While the executed tests are under `tests/`
+- Powerpoint and demo videos are under `design_docs/demo_videos_ppt/`. 
+    - The game run-through recording is divided into biome recordings (`Biome_Recordings/`), due to the size of the files
+- A representation of the git network diagram is showcased in the powerpoint aforementioned
+
+---
+
 ## Overview
 
 Adaptive Dungeon is a **30-room dungeon crawler** divided into 4 biomes. The game combines:
